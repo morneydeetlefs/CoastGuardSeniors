@@ -1,0 +1,31 @@
+{
+  // Full name of the app, displayed during installation.
+  "name": "CoastGuard Seniors",
+  // Short name for home screen icons.
+  "short_name": "CoastGuard",
+  // Description for app stores or installation prompts.
+  "description": "Neighborhood Watch for Durban Seniors",
+  // Starting URL when launched from home screen.
+  "start_url": "./index.html",
+  // Display mode: 'standalone' removes browser UI for app-like experience.
+  "display": "standalone",
+  // Background color for splash screen.
+  "background_color": "#ffffff",
+  // Theme color for browser UI elements.
+  "theme_color": "#4CAF50",
+  // Preferred orientation: 'portrait-primary' for mobile usability.
+  "orientation": "portrait-primary",
+  // Array of icons for different sizes and devices.
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
