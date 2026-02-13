@@ -83,7 +83,7 @@
 
     <script>
         // Constants and global variables: SCRIPT_URL for backend, userToken for auth, map and layers for Leaflet.
-        const SCRIPT_URL = 'YOUR_APPS_SCRIPT_URL'; // Replace with your deployed Apps Script URL
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbydmLo3aJuX7lexfkiDHUWi7fUt8hF1tCNBcR26-lss-FxMrOQkes7pboRFumN-9YnT/exec'; // Replace with your deployed Apps Script URL
         let userToken = localStorage.getItem('userToken') || new URLSearchParams(location.search).get('token');
         const inviteToken = new URLSearchParams(location.search).get('invite');
         let map;
@@ -342,4 +342,5 @@
         init();
     </script>
 </body>
+
 </html>
