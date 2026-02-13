@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- Meta tags for responsive design, PWA theming, and iOS support. Enables zooming up to 5x for accessibility. -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes">
+    <meta name="theme-color" content="#4CAF50">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>CoastGuard Seniors App</title>
+    <!-- Link to PWA manifest for installable app experience. -->
+    <link rel="manifest" href="manifest.json">
+    <!-- Leaflet CSS and JS for mapping, using CDN for simplicity and performance. -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <style>
+        /* Base styling for readability, especially on mobile. Larger fonts and touch-friendly elements. */
+        body { font-family: Arial, sans-serif; margin: 20px; font-size: 1.1em; }
+        #map { height: 400px; width: 100%; border: 1px solid #ccc; border-radius: 8px; }
+        .section { margin-bottom: 20px; }
+        /* Optimized for seniors: Larger buttons/inputs with padding for easy tapping. */
+        button, input, select { min-height: 48px; min-width: 48px; padding: 12px; font-size: 1.1em; border-radius: 6px; border: 1px solid #ccc; }
+        button { background: #4CAF50; color: white; cursor: pointer; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background: #f2f2f2; }
+        /* Time filter buttons: Mobile-friendly with hover effects and active state. */
+        .time-btn { padding: 8px 12px; background: #2196F3; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.95em; }
+        .time-btn.active { background: #4CAF50; }
+        .time-btn:hover { background: #1976D2; }
+        .zone-icon { text-align: center; }
+    </style>
+</head>
+<body>
+    <h1>CoastGuard Seniors: Neighborhood Watch</h1>
+    
+    <!-- Authentication section: Visible initially for signup or error messages. -->
+    <div id="auth-section" class="section">
+        <p>If you have an invite link, it should auto-start signup. Otherwise, contact admin for invite.</p>
+    </div>
+    
+    <!-- Dashboard section: Hidden until authenticated, contains map, filters, log form, and table. -->
+    <div id="dashboard" class="section" style="display: none;">
+        <h2>Strategy Snapshot</h2>
+        <ul>
+            <li><b>Core Team:</b> 10-15 seniors; sub-teams: River Watch, Sea Sentinels, Highway Hawks.</li>
+            <li><b>Budget:</b> R7k/year for cams, kits, badges.</li>
+            <li><b>Alerts:</b> Use codes like "Red Wave" for flood/loot.</li>
+            <!-- Expand with more strategy details if needed. -->
+        </ul>
+        
+        <h2>Map: Zones & Hotspots</h2>
+        <div id="map"></div>
+        
+        <!-- Time filter UI: Preset buttons and slider for easy incident filtering by recency. -->
+        <div style="margin: 15px 0; padding: 10px; background: #f9f9f9f9f9; background-image; border: 1px solid #ddd; border: #ddd; border-radius: 1ddd; border-radius: 8; border-radius: 1ddd; border: #f9f9f9f9; border-radius: 8px;">
+            <h3 style="margin-top: 0; font-size: 1.1em;">Filter Incidents by Time</h3>
+            <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
+                <button class="time-btn" data-days="0">All</button>
+                <button class="time-btn" data-days="1">Today</button>
+                <button class="time-btn" data-days="7">Last 7 Days</button>
+                <button class="time-btn" data-days="30">Last 30 Days</button>
+            </div>
+            <label style="display: block; margin: 10px 0;">
+                Or slide for custom: <span id="daysValue">30 days back</span>
+                <input type="range" id="timeSlider" min="0" max="90" value="30" step="1" style="width: 100%;">
+            </label>
+        </div>
+        
+        <h2>Log Incident/Alert</h2>
+        <!-- Form for submitting new incidents: Includes description, type dropdown, and location input. -->
+        <form id="logForm">
+            <label>Description: <input type="text" id="desc" required></label><br>
+            <label>Type: <select id="type"><option>Red Wave</option><option>Amber Blaze</option><option>Other</option></select></label><br>
+            <label>Location (lat,lng): <input type="text" id="loc" placeholder="-29.85,31.02"></label><br>
+            <button type="submit">Submit Log</button>
+        </form>
+        
+        <h2>Recent Logs</h2>
+        <!-- Table for displaying recent logs: Populated dynamically from fetched data. -->
+        <table id="logsTable"><thead><tr><th>Date</th><th>User</th><th>Description</th><th>Type</th><th>Location</th><th>Status</th></tr></thead><tbody></tbody></table>
+    </div>
+
+    <script>
+        // Constants and global variables: SCRIPT_URL for backend, userToken for auth, map and layers for Leaflet.
+        const SCRIPT_URL = 'YOUR_APPS_SCRIPT_URL'; // Replace with your deployed Apps Script URL
+        let userToken = localStorage.getItem('userToken') || new URLSearchParams(location.search).get('token');
+        const inviteToken = new URLSearchParams(location.search).get('invite');
+        let map;
+        let incidentLayers = {};
+        let currentDaysBack = 30; // Default time filter: last 30 days for initial relevance
+
+        // Helper function to fetch JSON data from the backend with built-in error handling.
+        // Throws an error if the response contains an 'error' field.
+        const fetchJSON = async (url, options = {}) => {
+          const res = await fetch(url, options);
+          const data = await res.json();
+          if (data.error) throw new Error(data.error);
+          return data;
+        };
+
+        // Calculates the cutoff date for time-based filtering based on days back from now.
+        const getCutoffDate = days => {
+          const d = new Date();
+          d.setDate(d.getDate() - days);
+          return d;
+        };
+
+        // Initializes the Leaflet map centered on Durban, adds OSM tiles, and plots zone markers from fetched data.
+        // Uses Canvas renderer for better mobile performance.
+        async function initMap() {
+          const zones = await fetchJSON(`${SCRIPT_URL}?action=getZones&token=${userToken}`).catch(() => []);
+          
+          map = L.map('map', {
+            renderer: L.canvas(), // Optimizes rendering for mobile devices
+            zoomSnap: 0.5,        // Smoother zoom increments
+            zoomDelta: 0.5,
+            tapTolerance: 15      // Better touch handling for seniors
+          }).setView([-29.8587, 31.0218], 12); // Durban center coordinates
+          
+          // Adds free OpenStreetMap tiles with required attribution.
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+            maxZoom: 19
+          }).addTo(map);
+
+          // Adds markers for each zone with popup showing name.
+          zones.forEach(([name, latStr, lngStr]) => {
+            const lat = parseFloat(latStr), lng = parseFloat(lngStr);
+            if (!isNaN(lat) && !isNaN(lng)) {
+              L.marker([lat, lng])
+                .bindPopup(`<b>${name}</b><br>Zone`)
+                .addTo(map);
+            }
+          });
+        }
+
+        // Fetches and loads incident logs onto the map, grouping by type into layers for filtering.
+        // Clears old layers, creates colored markers with popups, and updates the layers control.
+        async function loadIncidents() {
+          if (!userToken || !map) return;
+
+          const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
+
+          // Clears existing incident layers to prevent duplication on refresh.
+          Object.values(incidentLayers).forEach(l => map.removeLayer(l));
+          incidentLayers = {};
+
+          // Processes each log: Parses location, assigns color by type, creates marker and popup.
+          logs.forEach(([date, userName, desc, type = 'Other', locStr, status]) => {
+            if (!locStr?.includes(',')) return;
+            const [latStr, lngStr] = locStr.split(',');
+            const lat = parseFloat(latStr.trim());
+            const lng = parseFloat(lngStr.trim());
+            if (isNaN(lat) || isNaN(lng)) return;
+
+            const color = type.includes('Red Wave') ? 'red' :
+                          type.includes('Amber Blaze') ? 'orange' : 'gray';
+
+            const marker = L.circleMarker([lat, lng], {
+              radius: 8,
+              fillColor: color,
+              color: '#000',
+              weight: 1,
+              fillOpacity: 0.8
+            });
+
+            // Popup content: Formatted for readability with bold type and local date string.
+            const popup = `
+              <b style="font-size:1.2em">${type}</b><br>
+              <small>${new Date(date).toLocaleString('en-ZA')}</small><br><br>
+              <b>By:</b> ${userName}<br>
+              <b>Desc:</b> ${desc}<br>
+              <b>Loc:</b> ${lat.toFixed(4)}, ${lng.toFixed(4)}<br>
+              <b>Status:</b> ${status}
+            `;
+            marker.bindPopup(popup);
+
+            // Groups markers by type for layer control.
+            if (!incidentLayers[type]) incidentLayers[type] = L.layerGroup();
+            marker.addTo(incidentLayers[type]);
+          });
+
+          // Initializes or updates the layers control for type-based filtering.
+          if (!map.layersControl) {
+            map.layersControl = L.control.layers(null, incidentLayers, {
+              position: 'topright',
+              collapsed: false  // Keeps open for easy access on mobile
+            }).addTo(map);
+            Object.values(incidentLayers).forEach(l => l.addTo(map));
+          } else {
+            Object.entries(incidentLayers).forEach(([type, layer]) => {
+              if (!map.layersControl.getOverlays()[type]) {
+                map.layersControl.addOverlay(layer, type);
+                layer.addTo(map);
+              }
+            });
+          }
+
+          // Applies the current time filter immediately after loading incidents.
+          applyTimeFilter();
+        }
+
+        // Applies time filtering by hiding/showing markers based on their date relative to the cutoff.
+        // Updates the UI label for the selected days back.
+        function applyTimeFilter() {
+          const cutoff = getCutoffDate(currentDaysBack);
+
+          Object.values(incidentLayers).forEach(layer => {
+            layer.eachLayer(marker => {
+              const content = marker.getPopup()?.getContent() || '';
+              const match = content.match(/<small>([^<]+)<\/small>/);
+              if (!match) return;
+
+              const logDate = new Date(match[1].trim());
+              if (currentDaysBack === 0 || logDate >= cutoff) {
+                if (!map.hasLayer(marker)) marker.addTo(layer);
+              } else {
+                map.removeLayer(marker);
+              }
+            });
+          });
+
+          // Updates the slider label with singular/plural handling for 'day'.
+          document.getElementById('daysValue').textContent = 
+            currentDaysBack === 0 ? 'All time' : `Last ${currentDaysBack} day${currentDaysBack === 1 ? '' : 's'}`;
+        }
+
+        // Fetches logs and populates the recent logs table.
+        // Handles errors by returning an empty array to avoid UI breakage.
+        async function loadLogs() {
+          const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
+          const tbody = document.getElementById('logsTable').querySelector('tbody');
+          tbody.innerHTML = '';
+          logs.forEach(log => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${log[0]}</td><td>${log[1]}</td><td>${log[2]}</td><td>${log[3]}</td><td>${log[4]}</td><td>${log[5]}</td>`;
+            tbody.appendChild(tr);
+          });
+        }
+
+        // Displays the dashboard: Hides auth section, initializes map/logs, sets up polling and event listeners.
+        async function showDashboard() {
+          document.getElementById('auth-section').style.display = 'none';
+          document.getElementById('dashboard').style.display = 'block';
+
+          await initMap();
+          await loadIncidents();
+          loadLogs();
+
+          // Polls for updates every 30 seconds to keep data fresh without real-time push.
+          setInterval(() => {
+            loadIncidents();
+            loadLogs();
+          }, 30000);
+
+          // Event listener for log submission: Prevents default, sends POST, refreshes data on success.
+          document.getElementById('logForm').onsubmit = async e => {
+            e.preventDefault();
+            const desc = document.getElementById('desc').value;
+            const type  = document.getElementById('type').value;
+            const loc  = document.getElementById('loc').value;
+
+            try {
+              await fetchJSON(SCRIPT_URL, {
+                method: 'POST',
+                body: JSON.stringify({ action: 'logIncident', token: userToken, description: desc, type, location: loc })
+              });
+              loadIncidents();
+              loadLogs();
+              alert('Logged!');
+            } catch (err) {
+              alert('Error: ' + err.message);
+            }
+          };
+
+          // Handles time filter buttons: Toggles active class and applies filter.
+          document.querySelectorAll('.time-btn').forEach(btn => {
+            btn.onclick = () => {
+              document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+              btn.classList.add('active');
+              currentDaysBack = +btn.dataset.days;
+              applyTimeFilter();
+            };
+          });
+
+          // Handles time slider input: Updates current days and applies filter dynamically.
+          const slider = document.getElementById('timeSlider');
+          if (slider) {
+            slider.oninput = e => {
+              currentDaysBack = +e.target.value;
+              applyTimeFilter();
+            };
+            slider.value = currentDaysBack;
+          }
+        }
+
+        // App initialization: Handles invite-based signup or loads dashboard if token exists.
+        // Registers service worker for PWA offline capabilities.
+        async function init() {
+          if (inviteToken) {
+            try {
+              const { valid } = await fetchJSON(`${SCRIPT_URL}?action=validateInvite&inviteToken=${inviteToken}`);
+              if (!valid) return alert('Invalid or used invite.');
+
+              // Dynamically injects signup form into auth section.
+              document.getElementById('auth-section').innerHTML = `
+                <h2>Join CoastGuard Seniors</h2>
+                <form id="signupForm">
+                  <input id="name" placeholder="Your name" required><br>
+                  <input id="role" placeholder="Role (optional)"><br>
+                  <button type="submit">Join</button>
+                </form>`;
+
+              // Event listener for signup: Sends POST, stores token, shows dashboard.
+              document.getElementById('signupForm').onsubmit = async e => {
+                e.preventDefault();
+                const name = document.getElementById('name').value;
+                const role = document.getElementById('role').value;
+                const { userToken: token } = await fetchJSON(SCRIPT_URL, {
+                  method: 'POST',
+                  body: JSON.stringify({ action: 'register', inviteToken, name, role })
+                });
+                localStorage.setItem('userToken', token);
+                userToken = token;
+                showDashboard();
+              };
+            } catch (err) {
+              alert('Signup error: ' + err.message);
+            }
+          } else if (userToken) {
+            showDashboard();
+          } else {
+            document.getElementById('auth-section').innerHTML = '<p>Use your invite link or contact admin.</p>';
+          }
+          // Enables PWA features by registering the service worker if supported.
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./sw.js').catch(console.error);
+          }
+        }
+
+        init();
+    </script>
+</body>
+</html>
