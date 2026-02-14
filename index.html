@@ -1,60 +1,63 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <!-- Meta tags for responsive design, PWA theming, and iOS support. Enables zooming up to 5x for accessibility. -->
+    <!-- Meta tags for responsive design, PWA theming, and accessibility (zooming for seniors) -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes">
     <meta name="theme-color" content="#4CAF50">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://script.google.com https://corsproxy.io;">
     <title>CoastGuard Seniors App</title>
-    <!-- Link to PWA manifest for installable app experience. -->
+
+    <!-- PWA manifest – ensures installable app on phones -->
     <link rel="manifest" href="manifest.json">
-    <!-- Leaflet CSS and JS for mapping, using CDN for simplicity and performance. -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <!-- Leaflet mapping library (free OpenStreetMap) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" 
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5n/N0ZDv4=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" 
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
     <style>
-        /* Base styling for readability, especially on mobile. Larger fonts and touch-friendly elements. */
+        /* Base styling – larger fonts and touch targets for seniors */
         body { font-family: Arial, sans-serif; margin: 20px; font-size: 1.1em; }
         #map { height: 400px; width: 100%; border: 1px solid #ccc; border-radius: 8px; }
         .section { margin-bottom: 20px; }
-        /* Optimized for seniors: Larger buttons/inputs with padding for easy tapping. */
         button, input, select { min-height: 48px; min-width: 48px; padding: 12px; font-size: 1.1em; border-radius: 6px; border: 1px solid #ccc; }
         button { background: #4CAF50; color: white; cursor: pointer; }
         table { width: 100%; border-collapse: collapse; }
         th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
         th { background: #f2f2f2; }
-        /* Time filter buttons: Mobile-friendly with hover effects and active state. */
         .time-btn { padding: 8px 12px; background: #2196F3; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.95em; }
         .time-btn.active { background: #4CAF50; }
         .time-btn:hover { background: #1976D2; }
-        .zone-icon { text-align: center; }
     </style>
 </head>
 <body>
     <h1>CoastGuard Seniors: Neighborhood Watch</h1>
-    
-    <!-- Authentication section: Visible initially for signup or error messages. -->
+
+    <!-- Auth section – shown when no token/invite -->
     <div id="auth-section" class="section">
         <p>If you have an invite link, it should auto-start signup. Otherwise, contact admin for invite.</p>
     </div>
-    
-    <!-- Dashboard section: Hidden until authenticated, contains map, filters, log form, and table. -->
+
+    <!-- Dashboard – hidden until logged in -->
     <div id="dashboard" class="section" style="display: none;">
+        <!-- CUSTOMIZE THIS SECTION: Add/remove your strategy snapshot details -->
         <h2>Strategy Snapshot</h2>
         <ul>
             <li><b>Core Team:</b> 10-15 seniors; sub-teams: River Watch, Sea Sentinels, Highway Hawks.</li>
             <li><b>Budget:</b> R7k/year for cams, kits, badges.</li>
             <li><b>Alerts:</b> Use codes like "Red Wave" for flood/loot.</li>
-            <!-- Expand with more strategy details if needed. -->
+            <!-- Add more items here as needed -->
         </ul>
-        
+
         <h2>Map: Zones & Hotspots</h2>
         <div id="map"></div>
-        
-        <!-- Time filter UI: Preset buttons and slider for easy incident filtering by recency. -->
-        <div style="margin: 15px 0; padding: 10px; background: #f9f9f9f9f9; background-image; border: 1px solid #ddd; border: #ddd; border-radius: 1ddd; border-radius: 8; border-radius: 1ddd; border: #f9f9f9f9; border-radius: 8px;">
+
+        <!-- Time filter – helps focus on recent alerts -->
+        <div style="margin: 15px 0; padding: 10px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 8px;">
             <h3 style="margin-top: 0; font-size: 1.1em;">Filter Incidents by Time</h3>
             <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
                 <button class="time-btn" data-days="0">All</button>
@@ -67,266 +70,280 @@
                 <input type="range" id="timeSlider" min="0" max="90" value="30" step="1" style="width: 100%;">
             </label>
         </div>
-        
+
         <h2>Log Incident/Alert</h2>
-        <!-- Form for submitting new incidents: Includes description, type dropdown, and location input. -->
         <form id="logForm">
-            <label>Description: <input type="text" id="desc" required></label><br>
-            <label>Type: <select id="type"><option>Red Wave</option><option>Amber Blaze</option><option>Other</option></select></label><br>
-            <label>Location (lat,lng): <input type="text" id="loc" placeholder="-29.85,31.02"></label><br>
+            <label>Description: <input type="text" id="desc" required></label><br><br>
+            <label>Type: 
+                <select id="type">
+                    <option>Red Wave</option>
+                    <option>Amber Blaze</option>
+                    <option>Other</option>
+                </select>
+            </label><br><br>
+            <label>Location (lat,lng): <input type="text" id="loc" placeholder="-29.85,31.02"></label><br><br>
             <button type="submit">Submit Log</button>
         </form>
-        
+
         <h2>Recent Logs</h2>
-        <!-- Table for displaying recent logs: Populated dynamically from fetched data. -->
-        <table id="logsTable"><thead><tr><th>Date</th><th>User</th><th>Description</th><th>Type</th><th>Location</th><th>Status</th></tr></thead><tbody></tbody></table>
+        <table id="logsTable">
+            <thead><tr><th>Date</th><th>User</th><th>Description</th><th>Type</th><th>Location</th><th>Status</th></tr></thead>
+            <tbody></tbody>
+        </table>
     </div>
 
     <script>
-    // Constants and global variables
-    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbydmLo3aJuX7lexfkiDHUWi7fUt8hF1tCNBcR26-lss-FxMrOQkes7pboRFumN-9YnT/exec';
+        // ===================================================================
+        // HARD CODE YOUR INFO HERE
+        // ===================================================================
+
+        // 1. YOUR GOOGLE APPS SCRIPT WEB APP URL
+        //    Replace the entire string with your deployed /exec URL
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbydmLo3aJuX7lexfkiDHUWi7fUt8hF1tCNBcR26-lss-FxMrOQkes7pboRFumN-9YnT/exec';
+
+        // 2. CORS PROXY (fixes network errors with Apps Script from GitHub Pages)
+        //    Keep this – it's free and reliable for your small group
         const PROXY_PREFIX = 'https://corsproxy.io/?';
-const PROXIED_URL = PROXY_PREFIX + encodeURIComponent(SCRIPT_URL);
-    let userToken = localStorage.getItem('userToken') || new URLSearchParams(location.search).get('token');
-    const inviteToken = new URLSearchParams(location.search).get('invite');
-    let map;
-    let incidentLayers = {};
-    let currentDaysBack = 30;
+        const PROXIED_URL = PROXY_PREFIX + encodeURIComponent(SCRIPT_URL);
 
-    // Helper to fetch JSON (used for both GET and POST)
-    const fetchJSON = async (url, options = {}) => {
-        const res = await fetch(url, options);
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
-        return data;
-    };
+        // 3. MAP CENTER (optional – customize if you want a different Durban view)
+        //    Current: Durban city center – change lat/lng if needed
+        const DURBAN_CENTER = [-30.477, 30.629];
 
-    const getCutoffDate = days => {
-        const d = new Date();
-        d.setDate(d.getDate() - days);
-        return d;
-    };
+        // ===================================================================
+        // END OF HARD CODE SECTION – do not change below unless customizing
+        // ===================================================================
 
-    async function initMap() {
-        const zones = await fetchJSON(`${SCRIPT_URL}?action=getZones&token=${userToken}`).catch(() => []);
-        
-        map = L.map('map', {
-            renderer: L.canvas(),
-            zoomSnap: 0.5,
-            zoomDelta: 0.5,
-            tapTolerance: 15
-        }).setView([-29.8587, 31.0218], 12);
-        
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-            maxZoom: 19
-        }).addTo(map);
+        let userToken = localStorage.getItem('userToken') || new URLSearchParams(location.search).get('token');
+        const inviteToken = new URLSearchParams(location.search).get('invite');
+        let map;
+        let incidentLayers = {};
+        let currentDaysBack = 30;
 
-        zones.forEach(([name, latStr, lngStr]) => {
-            const lat = parseFloat(latStr), lng = parseFloat(lngStr);
-            if (!isNaN(lat) && !isNaN(lng)) {
-                L.marker([lat, lng])
-                    .bindPopup(`<b>${name}</b><br>Zone`)
-                    .addTo(map);
-            }
-        });
-    }
+        const fetchJSON = async (url, options = {}) => {
+            const res = await fetch(url, options);
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            return data;
+        };
 
-    async function loadIncidents() {
-        if (!userToken || !map) return;
-        const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
+        const getCutoffDate = days => {
+            const d = new Date();
+            d.setDate(d.getDate() - days);
+            return d;
+        };
 
-        Object.values(incidentLayers).forEach(l => map.removeLayer(l));
-        incidentLayers = {};
-
-        logs.forEach(([date, userName, desc, type = 'Other', locStr, status]) => {
-            if (!locStr?.includes(',')) return;
-            const [latStr, lngStr] = locStr.split(',');
-            const lat = parseFloat(latStr.trim());
-            const lng = parseFloat(lngStr.trim());
-            if (isNaN(lat) || isNaN(lng)) return;
-
-            const color = type.includes('Red Wave') ? 'red' :
-                          type.includes('Amber Blaze') ? 'orange' : 'gray';
-
-            const marker = L.circleMarker([lat, lng], {
-                radius: 8,
-                fillColor: color,
-                color: '#000',
-                weight: 1,
-                fillOpacity: 0.8
-            });
-
-            const popup = `
-                <b style="font-size:1.2em">${type}</b><br>
-                <small>${new Date(date).toLocaleString('en-ZA')}</small><br><br>
-                <b>By:</b> ${userName}<br>
-                <b>Desc:</b> ${desc}<br>
-                <b>Loc:</b> ${lat.toFixed(4)}, ${lng.toFixed(4)}<br>
-                <b>Status:</b> ${status}
-            `;
-            marker.bindPopup(popup);
-
-            if (!incidentLayers[type]) incidentLayers[type] = L.layerGroup();
-            marker.addTo(incidentLayers[type]);
-        });
-
-        if (!map.layersControl) {
-            map.layersControl = L.control.layers(null, incidentLayers, {
-                position: 'topright',
-                collapsed: false
+        async function initMap() {
+            const zones = await fetchJSON(`${PROXIED_URL}?action=getZones&token=${userToken}`).catch(() => []);
+            
+            map = L.map('map', {
+                renderer: L.canvas(),
+                zoomSnap: 0.5,
+                zoomDelta: 0.5,
+                tapTolerance: 15
+            }).setView(DURBAN_CENTER, 12);
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+                maxZoom: 19
             }).addTo(map);
-            Object.values(incidentLayers).forEach(l => l.addTo(map));
-        } else {
-            Object.entries(incidentLayers).forEach(([type, layer]) => {
-                if (!map.layersControl.getOverlays()[type]) {
-                    map.layersControl.addOverlay(layer, type);
-                    layer.addTo(map);
+
+            zones.forEach(([name, latStr, lngStr]) => {
+                const lat = parseFloat(latStr), lng = parseFloat(lngStr);
+                if (!isNaN(lat) && !isNaN(lng)) {
+                    L.marker([lat, lng])
+                        .bindPopup(`<b>${name}</b><br>Zone`)
+                        .addTo(map);
                 }
             });
         }
 
-        applyTimeFilter();
-    }
+        async function loadIncidents() {
+            if (!userToken || !map) return;
+            const logs = await fetchJSON(`${PROXIED_URL}?action=getLogs&token=${userToken}`).catch(() => []);
 
-    function applyTimeFilter() {
-        const cutoff = getCutoffDate(currentDaysBack);
-        Object.values(incidentLayers).forEach(layer => {
-            layer.eachLayer(marker => {
-                const content = marker.getPopup()?.getContent() || '';
-                const match = content.match(/<small>([^<]+)<\/small>/);
-                if (!match) return;
-                const logDate = new Date(match[1].trim());
-                if (currentDaysBack === 0 || logDate >= cutoff) {
-                    if (!map.hasLayer(marker)) marker.addTo(layer);
-                } else {
-                    map.removeLayer(marker);
-                }
+            Object.values(incidentLayers).forEach(l => map.removeLayer(l));
+            incidentLayers = {};
+
+            logs.forEach(([date, userName, desc, type = 'Other', locStr, status]) => {
+                if (!locStr?.includes(',')) return;
+                const [latStr, lngStr] = locStr.split(',');
+                const lat = parseFloat(latStr.trim());
+                const lng = parseFloat(lngStr.trim());
+                if (isNaN(lat) || isNaN(lng)) return;
+
+                const color = type.includes('Red Wave') ? 'red' :
+                              type.includes('Amber Blaze') ? 'orange' : 'gray';
+
+                const marker = L.circleMarker([lat, lng], {
+                    radius: 8,
+                    fillColor: color,
+                    color: '#000',
+                    weight: 1,
+                    fillOpacity: 0.8
+                });
+
+                const popup = `
+                    <b style="font-size:1.2em">${type}</b><br>
+                    <small>${new Date(date).toLocaleString('en-ZA')}</small><br><br>
+                    <b>By:</b> ${userName}<br>
+                    <b>Desc:</b> ${desc}<br>
+                    <b>Loc:</b> ${lat.toFixed(4)}, ${lng.toFixed(4)}<br>
+                    <b>Status:</b> ${status}
+                `;
+                marker.bindPopup(popup);
+
+                if (!incidentLayers[type]) incidentLayers[type] = L.layerGroup();
+                marker.addTo(incidentLayers[type]);
             });
-        });
-        document.getElementById('daysValue').textContent = 
-            currentDaysBack === 0 ? 'All time' : `Last ${currentDaysBack} day${currentDaysBack === 1 ? '' : 's'}`;
-    }
 
-    async function loadLogs() {
-        const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
-        const tbody = document.getElementById('logsTable').querySelector('tbody');
-        tbody.innerHTML = '';
-        logs.forEach(log => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${log[0]}</td><td>${log[1]}</td><td>${log[2]}</td><td>${log[3]}</td><td>${log[4]}</td><td>${log[5]}</td>`;
-            tbody.appendChild(tr);
-        });
-    }
-
-    async function showDashboard() {
-        document.getElementById('auth-section').style.display = 'none';
-        document.getElementById('dashboard').style.display = 'block';
-
-        await initMap();
-        await loadIncidents();
-        loadLogs();
-
-        setInterval(() => {
-            loadIncidents();
-            loadLogs();
-        }, 30000);
-
-        document.getElementById('logForm').onsubmit = async e => {
-    e.preventDefault();
-    const desc = document.getElementById('desc').value;
-    const type = document.getElementById('type').value;
-    const loc = document.getElementById('loc').value;
-
-    try {
-        await fetchJSON(SCRIPT_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'text/plain;charset=utf-8'   // ← Add this
-            },
-            body: JSON.stringify({ action: 'logIncident', token: userToken, description: desc, type, location: loc })
-        });
-        loadIncidents();
-        loadLogs();
-        alert('Logged!');
-    } catch (err) {
-        alert('Error: ' + err.message);
-    }
-};
-
-        document.querySelectorAll('.time-btn').forEach(btn => {
-            btn.onclick = () => {
-                document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                currentDaysBack = +btn.dataset.days;
-                applyTimeFilter();
-            };
-        });
-
-        const slider = document.getElementById('timeSlider');
-        if (slider) {
-            slider.oninput = e => {
-                currentDaysBack = +e.target.value;
-                applyTimeFilter();
-            };
-            slider.value = currentDaysBack;
-        }
-    }
-
-    async function init() {
-        if (inviteToken) {
-            try {
-                const { valid } = await fetchJSON(`${SCRIPT_URL}?action=validateInvite&inviteToken=${inviteToken}`);
-                if (!valid) return alert('Invalid or used invite.');
-
-                document.getElementById('auth-section').innerHTML = `
-                    <h2>Join CoastGuard Seniors</h2>
-                    <form id="signupForm">
-                        <input id="name" placeholder="Your name" required><br>
-                        <input id="role" placeholder="Role (optional)"><br>
-                        <button type="submit">Join</button>
-                    </form>`;
-
-                document.getElementById('signupForm').onsubmit = async e => {
-    e.preventDefault();
-    const name = document.getElementById('name').value;
-    const role = document.getElementById('role').value;
-
-    try {
-        const { userToken: newToken } = await fetchJSON(PROXIED_URL, {  // ← Use proxy only here
-            method: 'POST',
-            body: JSON.stringify({ action: 'register', inviteToken, name, role })
-        });
-
-        localStorage.setItem('userToken', newToken);
-        userToken = newToken;
-        showDashboard();
-        alert('Welcome! You are now signed up.');
-    } catch (err) {
-        alert('Signup failed: ' + err.message);
-        console.error(err);
-    }
-};
-            } catch (err) {
-                alert('Error checking invite: ' + err.message);
+            if (!map.layersControl) {
+                map.layersControl = L.control.layers(null, incidentLayers, {
+                    position: 'topright',
+                    collapsed: false
+                }).addTo(map);
+                Object.values(incidentLayers).forEach(l => l.addTo(map));
+            } else {
+                Object.entries(incidentLayers).forEach(([type, layer]) => {
+                    if (!map.layersControl.getOverlays()[type]) {
+                        map.layersControl.addOverlay(layer, type);
+                        layer.addTo(map);
+                    }
+                });
             }
-        } else if (userToken) {
-            showDashboard();
-        } else {
-            document.getElementById('auth-section').innerHTML = '<p>Use your invite link or contact admin.</p>';
+
+            applyTimeFilter();
         }
 
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js').catch(console.error);
+        function applyTimeFilter() {
+            const cutoff = getCutoffDate(currentDaysBack);
+            Object.values(incidentLayers).forEach(layer => {
+                layer.eachLayer(marker => {
+                    const content = marker.getPopup()?.getContent() || '';
+                    const match = content.match(/<small>([^<]+)</small>/);
+                    if (!match) return;
+                    const logDate = new Date(match[1].trim());
+                    if (currentDaysBack === 0 || logDate >= cutoff) {
+                        if (!map.hasLayer(marker)) marker.addTo(layer);
+                    } else {
+                        map.removeLayer(marker);
+                    }
+                });
+            });
+            document.getElementById('daysValue').textContent = 
+                currentDaysBack === 0 ? 'All time' : `Last ${currentDaysBack} day${currentDaysBack === 1 ? '' : 's'}`;
         }
-    }
 
-    init();
-</script>
+        async function loadLogs() {
+            const logs = await fetchJSON(`${PROXIED_URL}?action=getLogs&token=${userToken}`).catch(() => []);
+            const tbody = document.getElementById('logsTable').querySelector('tbody');
+            tbody.innerHTML = '';
+            logs.forEach(log => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${log[0]}</td><td>${log[1]}</td><td>${log[2]}</td><td>${log[3]}</td><td>${log[4]}</td><td>${log[5]}</td>`;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function showDashboard() {
+            document.getElementById('auth-section').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'block';
+
+            await initMap();
+            await loadIncidents();
+            loadLogs();
+
+            setInterval(() => {
+                loadIncidents();
+                loadLogs();
+            }, 30000);
+
+            document.getElementById('logForm').onsubmit = async e => {
+                e.preventDefault();
+                const desc = document.getElementById('desc').value;
+                const type = document.getElementById('type').value;
+                const loc = document.getElementById('loc').value;
+
+                try {
+                    await fetchJSON(PROXIED_URL, {
+                        method: 'POST',
+                        body: JSON.stringify({ action: 'logIncident', token: userToken, description: desc, type, location: loc })
+                    });
+                    loadIncidents();
+                    loadLogs();
+                    alert('Incident logged!');
+                } catch (err) {
+                    alert('Error: ' + err.message);
+                }
+            };
+
+            document.querySelectorAll('.time-btn').forEach(btn => {
+                btn.onclick = () => {
+                    document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    currentDaysBack = +btn.dataset.days;
+                    applyTimeFilter();
+                };
+            });
+
+            const slider = document.getElementById('timeSlider');
+            if (slider) {
+                slider.oninput = e => {
+                    currentDaysBack = +e.target.value;
+                    applyTimeFilter();
+                };
+                slider.value = currentDaysBack;
+            }
+        }
+
+        async function init() {
+            if (inviteToken) {
+                try {
+                    const { valid } = await fetchJSON(`${PROXIED_URL}?action=validateInvite&inviteToken=${inviteToken}`);
+                    if (!valid) return alert('Invalid or used invite.');
+
+                    document.getElementById('auth-section').innerHTML = `
+                        <h2>Join CoastGuard Seniors</h2>
+                        <form id="signupForm">
+                            <label>Name: <input id="name" placeholder="Your name" required></label><br><br>
+                            <label>Role (optional): <input id="role" placeholder="e.g. River Watch"></label><br><br>
+                            <button type="submit">Join</button>
+                        </form>`;
+
+                    document.getElementById('signupForm').onsubmit = async e => {
+                        e.preventDefault();
+                        const name = document.getElementById('name').value;
+                        const role = document.getElementById('role').value;
+
+                        try {
+                            const { userToken: newToken } = await fetchJSON(PROXIED_URL, {
+                                method: 'POST',
+                                body: JSON.stringify({ action: 'register', inviteToken, name, role })
+                            });
+
+                            localStorage.setItem('userToken', newToken);
+                            userToken = newToken;
+                            showDashboard();
+                            alert('Welcome! You are now signed up.');
+                        } catch (err) {
+                            alert('Signup failed: ' + err.message);
+                        }
+                    };
+                } catch (err) {
+                    alert('Error checking invite: ' + err.message);
+                }
+            } else if (userToken) {
+                showDashboard();
+            } else {
+                document.getElementById('auth-section').innerHTML = '<p>Use your invite link or contact admin.</p>';
+            }
+
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('./sw.js').catch(console.error);
+            }
+        }
+
+        init();
+    </script>
 </body>
-
 </html>
-
-
-
-
