@@ -7,6 +7,7 @@
     <meta name="theme-color" content="#4CAF50">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://script.google.com https://corsproxy.io;">
     <title>CoastGuard Seniors App</title>
     <!-- Link to PWA manifest for installable app experience. -->
     <link rel="manifest" href="manifest.json">
@@ -325,6 +326,7 @@ const PROXIED_URL = PROXY_PREFIX + encodeURIComponent(SCRIPT_URL);
 </body>
 
 </html>
+
 
 
 
