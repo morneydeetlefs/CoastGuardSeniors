@@ -230,23 +230,26 @@
         }, 30000);
 
         document.getElementById('logForm').onsubmit = async e => {
-            e.preventDefault();
-            const desc = document.getElementById('desc').value;
-            const type = document.getElementById('type').value;
-            const loc = document.getElementById('loc').value;
+    e.preventDefault();
+    const desc = document.getElementById('desc').value;
+    const type = document.getElementById('type').value;
+    const loc = document.getElementById('loc').value;
 
-            try {
-                await fetchJSON(SCRIPT_URL, {
-                    method: 'POST',
-                    body: JSON.stringify({ action: 'logIncident', token: userToken, description: desc, type, location: loc })
-                });
-                loadIncidents();
-                loadLogs();
-                alert('Logged!');
-            } catch (err) {
-                alert('Error: ' + err.message);
-            }
-        };
+    try {
+        await fetchJSON(SCRIPT_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'text/plain;charset=utf-8'   // ← Add this
+            },
+            body: JSON.stringify({ action: 'logIncident', token: userToken, description: desc, type, location: loc })
+        });
+        loadIncidents();
+        loadLogs();
+        alert('Logged!');
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+};
 
         document.querySelectorAll('.time-btn').forEach(btn => {
             btn.onclick = () => {
@@ -282,23 +285,26 @@
                     </form>`;
 
                 document.getElementById('signupForm').onsubmit = async e => {
-                    e.preventDefault();
-                    const name = document.getElementById('name').value;
-                    const role = document.getElementById('role').value;
+    e.preventDefault();
+    const name = document.getElementById('name').value;
+    const role = document.getElementById('role').value;
 
-                    try {
-                        const { userToken: newToken } = await fetchJSON(SCRIPT_URL, {
-                            method: 'POST',
-                            body: JSON.stringify({ action: 'register', inviteToken, name, role })
-                        });
+    try {
+        const { userToken: newToken } = await fetchJSON(SCRIPT_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'text/plain;charset=utf-8'   // ← This line fixes CORS for POST
+            },
+            body: JSON.stringify({ action: 'register', inviteToken, name, role })
+        });
 
-                        localStorage.setItem('userToken', newToken);
-                        userToken = newToken;
-                        showDashboard();
-                    } catch (err) {
-                        alert('Signup failed: ' + err.message);
-                    }
-                };
+        localStorage.setItem('userToken', newToken);
+        userToken = newToken;
+        showDashboard();
+    } catch (err) {
+        alert('Signup failed: ' + err.message);
+    }
+};
             } catch (err) {
                 alert('Error checking invite: ' + err.message);
             }
@@ -318,4 +324,5 @@
 </body>
 
 </html>
+
 
