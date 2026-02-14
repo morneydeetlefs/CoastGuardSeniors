@@ -13,7 +13,7 @@
     <!-- PWA manifest -->
     <link rel="manifest" href="manifest.json">
 
-    <!-- Leaflet mapping library – integrity attributes REMOVED to avoid SRI blocks (hashes change on CDN) -->
+    <!-- Leaflet mapping library – integrity removed to avoid SRI errors on CDN -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 
@@ -39,11 +39,13 @@
     </div>
 
     <div id="dashboard" class="section" style="display: none;">
+        <!-- EDIT THIS SECTION: Customize your strategy snapshot text -->
         <h2>Strategy Snapshot</h2>
         <ul>
             <li><b>Core Team:</b> 10-15 seniors; sub-teams: River Watch, Sea Sentinels, Highway Hawks.</li>
             <li><b>Budget:</b> R7k/year for cams, kits, badges.</li>
             <li><b>Alerts:</b> Use codes like "Red Wave" for flood/loot.</li>
+            <!-- Add or remove lines here as needed -->
         </ul>
 
         <h2>Map: Zones & Hotspots</h2>
@@ -68,6 +70,7 @@
             <label>Description: <input type="text" id="desc" required></label><br><br>
             <label>Type: 
                 <select id="type">
+                    <!-- EDIT THIS: Add/remove alert types as needed -->
                     <option>Red Wave</option>
                     <option>Amber Blaze</option>
                     <option>Other</option>
@@ -86,21 +89,17 @@
 
     <script>
         // ===================================================================
-        // HARD CODE YOUR INFO HERE
+        // HARD CODE YOUR INFO HERE – ONLY THESE LINES NEED EDITING
         // ===================================================================
 
-        // 1. YOUR GOOGLE APPS SCRIPT WEB APP URL
+        // 1. YOUR GOOGLE APPS SCRIPT WEB APP URL (the /exec link from deployment)
         const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbydmLo3aJuX7lexfkiDHUWi7fUt8hF1tCNBcR26-lss-FxMrOQkes7pboRFumN-9YnT/exec';
 
-        // 2. CORS PROXY – keeps all fetches working reliably
-        const PROXY_PREFIX = 'https://corsproxy.io/?';
-        const PROXIED_URL = PROXY_PREFIX + encodeURIComponent(SCRIPT_URL);
-
-        // 3. MAP CENTER (optional)
-        const DURBAN_CENTER = [-29.8587, 31.0218];
+        // 2. MAP CENTER (optional – change for different default view)
+        const DURBAN_CENTER = [-29.8587, 31.0218];  // Durban city center
 
         // ===================================================================
-        // END HARD CODE – rest is app logic
+        // END OF HARD CODE SECTION – do not edit below unless customizing features
         // ===================================================================
 
         let userToken = localStorage.getItem('userToken') || new URLSearchParams(location.search).get('token');
@@ -123,7 +122,7 @@
         };
 
         async function initMap() {
-            const zones = await fetchJSON(`${PROXIED_URL}?action=getZones&token=${userToken}`).catch(() => []);
+            const zones = await fetchJSON(`${SCRIPT_URL}?action=getZones&token=${userToken}`).catch(() => []);
             
             map = L.map('map', {
                 renderer: L.canvas(),
@@ -149,7 +148,7 @@
 
         async function loadIncidents() {
             if (!userToken || !map) return;
-            const logs = await fetchJSON(`${PROXIED_URL}?action=getLogs&token=${userToken}`).catch(() => []);
+            const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
 
             Object.values(incidentLayers).forEach(l => map.removeLayer(l));
             incidentLayers = {};
@@ -209,7 +208,6 @@
             Object.values(incidentLayers).forEach(layer => {
                 layer.eachLayer(marker => {
                     const content = marker.getPopup()?.getContent() || '';
-                    // FIXED: Proper escaped regex for </small>
                     const match = content.match(/<small>([^<]+)<\/small>/);
                     if (!match) return;
                     const logDate = new Date(match[1].trim());
@@ -225,7 +223,7 @@
         }
 
         async function loadLogs() {
-            const logs = await fetchJSON(`${PROXIED_URL}?action=getLogs&token=${userToken}`).catch(() => []);
+            const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
             const tbody = document.getElementById('logsTable').querySelector('tbody');
             tbody.innerHTML = '';
             logs.forEach(log => {
@@ -255,7 +253,7 @@
                 const loc = document.getElementById('loc').value;
 
                 try {
-                    await fetchJSON(PROXIED_URL, {
+                    await fetchJSON(SCRIPT_URL, {
                         method: 'POST',
                         body: JSON.stringify({ action: 'logIncident', token: userToken, description: desc, type, location: loc })
                     });
@@ -289,7 +287,7 @@
         async function init() {
             if (inviteToken) {
                 try {
-                    const { valid } = await fetchJSON(`${PROXIED_URL}?action=validateInvite&inviteToken=${inviteToken}`);
+                    const { valid } = await fetchJSON(`${SCRIPT_URL}?action=validateInvite&inviteToken=${inviteToken}`);
                     if (!valid) return alert('Invalid or used invite.');
 
                     document.getElementById('auth-section').innerHTML = `
@@ -306,7 +304,7 @@
                         const role = document.getElementById('role').value;
 
                         try {
-                            const { userToken: newToken } = await fetchJSON(PROXIED_URL, {
+                            const { userToken: newToken } = await fetchJSON(SCRIPT_URL, {
                                 method: 'POST',
                                 body: JSON.stringify({ action: 'register', inviteToken, name, role })
                             });
@@ -323,6 +321,8 @@
                     alert('Error checking invite: ' + err.message);
                 }
             } else if (userToken) {
+                // Token found – save it explicitly (helps with some browser quirks)
+                localStorage.setItem('userToken', userToken);
                 showDashboard();
             } else {
                 document.getElementById('auth-section').innerHTML = '<p>Use your invite link or contact admin.</p>';
