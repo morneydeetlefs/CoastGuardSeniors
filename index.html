@@ -84,6 +84,8 @@
     <script>
     // Constants and global variables
     const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbydmLo3aJuX7lexfkiDHUWi7fUt8hF1tCNBcR26-lss-FxMrOQkes7pboRFumN-9YnT/exec';
+        const PROXY_PREFIX = 'https://corsproxy.io/?';
+const PROXIED_URL = PROXY_PREFIX + encodeURIComponent(SCRIPT_URL);
     let userToken = localStorage.getItem('userToken') || new URLSearchParams(location.search).get('token');
     const inviteToken = new URLSearchParams(location.search).get('invite');
     let map;
@@ -290,19 +292,18 @@
     const role = document.getElementById('role').value;
 
     try {
-        const { userToken: newToken } = await fetchJSON(SCRIPT_URL, {
+        const { userToken: newToken } = await fetchJSON(PROXIED_URL, {  // ← Use proxy only here
             method: 'POST',
-            headers: {
-                'Content-Type': 'text/plain;charset=utf-8'   // ← This line fixes CORS for POST
-            },
             body: JSON.stringify({ action: 'register', inviteToken, name, role })
         });
 
         localStorage.setItem('userToken', newToken);
         userToken = newToken;
         showDashboard();
+        alert('Welcome! You are now signed up.');
     } catch (err) {
         alert('Signup failed: ' + err.message);
+        console.error(err);
     }
 };
             } catch (err) {
@@ -324,5 +325,6 @@
 </body>
 
 </html>
+
 
 
