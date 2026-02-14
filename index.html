@@ -82,72 +82,61 @@
     </div>
 
     <script>
-        // Constants and global variables: SCRIPT_URL for backend, userToken for auth, map and layers for Leaflet.
-        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbydmLo3aJuX7lexfkiDHUWi7fUt8hF1tCNBcR26-lss-FxMrOQkes7pboRFumN-9YnT/exec'; // Replace with your deployed Apps Script URL
-        let userToken = localStorage.getItem('userToken') || new URLSearchParams(location.search).get('token');
-        const inviteToken = new URLSearchParams(location.search).get('invite');
-        let map;
-        let incidentLayers = {};
-        let currentDaysBack = 30; // Default time filter: last 30 days for initial relevance
+    // Constants and global variables
+    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbydmLo3aJuX7lexfkiDHUWi7fUt8hF1tCNBcR26-lss-FxMrOQkes7pboRFumN-9YnT/exec';
+    let userToken = localStorage.getItem('userToken') || new URLSearchParams(location.search).get('token');
+    const inviteToken = new URLSearchParams(location.search).get('invite');
+    let map;
+    let incidentLayers = {};
+    let currentDaysBack = 30;
 
-        // Helper function to fetch JSON data from the backend with built-in error handling.
-        // Throws an error if the response contains an 'error' field.
-        const fetchJSON = async (url, options = {}) => {
-          const res = await fetch(url, options);
-          const data = await res.json();
-          if (data.error) throw new Error(data.error);
-          return data;
-        };
+    // Helper to fetch JSON (used for both GET and POST)
+    const fetchJSON = async (url, options = {}) => {
+        const res = await fetch(url, options);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        return data;
+    };
 
-        // Calculates the cutoff date for time-based filtering based on days back from now.
-        const getCutoffDate = days => {
-          const d = new Date();
-          d.setDate(d.getDate() - days);
-          return d;
-        };
+    const getCutoffDate = days => {
+        const d = new Date();
+        d.setDate(d.getDate() - days);
+        return d;
+    };
 
-        // Initializes the Leaflet map centered on Durban, adds OSM tiles, and plots zone markers from fetched data.
-        // Uses Canvas renderer for better mobile performance.
-        async function initMap() {
-          const zones = await fetchJSON(`${SCRIPT_URL}?action=getZones&token=${userToken}`).catch(() => []);
-          
-          map = L.map('map', {
-            renderer: L.canvas(), // Optimizes rendering for mobile devices
-            zoomSnap: 0.5,        // Smoother zoom increments
+    async function initMap() {
+        const zones = await fetchJSON(`${SCRIPT_URL}?action=getZones&token=${userToken}`).catch(() => []);
+        
+        map = L.map('map', {
+            renderer: L.canvas(),
+            zoomSnap: 0.5,
             zoomDelta: 0.5,
-            tapTolerance: 15      // Better touch handling for seniors
-          }).setView([-29.8587, 31.0218], 12); // Durban center coordinates
-          
-          // Adds free OpenStreetMap tiles with required attribution.
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            tapTolerance: 15
+        }).setView([-29.8587, 31.0218], 12);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
             maxZoom: 19
-          }).addTo(map);
+        }).addTo(map);
 
-          // Adds markers for each zone with popup showing name.
-          zones.forEach(([name, latStr, lngStr]) => {
+        zones.forEach(([name, latStr, lngStr]) => {
             const lat = parseFloat(latStr), lng = parseFloat(lngStr);
             if (!isNaN(lat) && !isNaN(lng)) {
-              L.marker([lat, lng])
-                .bindPopup(`<b>${name}</b><br>Zone`)
-                .addTo(map);
+                L.marker([lat, lng])
+                    .bindPopup(`<b>${name}</b><br>Zone`)
+                    .addTo(map);
             }
-          });
-        }
+        });
+    }
 
-        // Fetches and loads incident logs onto the map, grouping by type into layers for filtering.
-        // Clears old layers, creates colored markers with popups, and updates the layers control.
-        async function loadIncidents() {
-          if (!userToken || !map) return;
+    async function loadIncidents() {
+        if (!userToken || !map) return;
+        const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
 
-          const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
+        Object.values(incidentLayers).forEach(l => map.removeLayer(l));
+        incidentLayers = {};
 
-          // Clears existing incident layers to prevent duplication on refresh.
-          Object.values(incidentLayers).forEach(l => map.removeLayer(l));
-          incidentLayers = {};
-
-          // Processes each log: Parses location, assigns color by type, creates marker and popup.
-          logs.forEach(([date, userName, desc, type = 'Other', locStr, status]) => {
+        logs.forEach(([date, userName, desc, type = 'Other', locStr, status]) => {
             if (!locStr?.includes(',')) return;
             const [latStr, lngStr] = locStr.split(',');
             const lat = parseFloat(latStr.trim());
@@ -158,189 +147,175 @@
                           type.includes('Amber Blaze') ? 'orange' : 'gray';
 
             const marker = L.circleMarker([lat, lng], {
-              radius: 8,
-              fillColor: color,
-              color: '#000',
-              weight: 1,
-              fillOpacity: 0.8
+                radius: 8,
+                fillColor: color,
+                color: '#000',
+                weight: 1,
+                fillOpacity: 0.8
             });
 
-            // Popup content: Formatted for readability with bold type and local date string.
             const popup = `
-              <b style="font-size:1.2em">${type}</b><br>
-              <small>${new Date(date).toLocaleString('en-ZA')}</small><br><br>
-              <b>By:</b> ${userName}<br>
-              <b>Desc:</b> ${desc}<br>
-              <b>Loc:</b> ${lat.toFixed(4)}, ${lng.toFixed(4)}<br>
-              <b>Status:</b> ${status}
+                <b style="font-size:1.2em">${type}</b><br>
+                <small>${new Date(date).toLocaleString('en-ZA')}</small><br><br>
+                <b>By:</b> ${userName}<br>
+                <b>Desc:</b> ${desc}<br>
+                <b>Loc:</b> ${lat.toFixed(4)}, ${lng.toFixed(4)}<br>
+                <b>Status:</b> ${status}
             `;
             marker.bindPopup(popup);
 
-            // Groups markers by type for layer control.
             if (!incidentLayers[type]) incidentLayers[type] = L.layerGroup();
             marker.addTo(incidentLayers[type]);
-          });
+        });
 
-          // Initializes or updates the layers control for type-based filtering.
-          if (!map.layersControl) {
+        if (!map.layersControl) {
             map.layersControl = L.control.layers(null, incidentLayers, {
-              position: 'topright',
-              collapsed: false  // Keeps open for easy access on mobile
+                position: 'topright',
+                collapsed: false
             }).addTo(map);
             Object.values(incidentLayers).forEach(l => l.addTo(map));
-          } else {
+        } else {
             Object.entries(incidentLayers).forEach(([type, layer]) => {
-              if (!map.layersControl.getOverlays()[type]) {
-                map.layersControl.addOverlay(layer, type);
-                layer.addTo(map);
-              }
+                if (!map.layersControl.getOverlays()[type]) {
+                    map.layersControl.addOverlay(layer, type);
+                    layer.addTo(map);
+                }
             });
-          }
-
-          // Applies the current time filter immediately after loading incidents.
-          applyTimeFilter();
         }
 
-        // Applies time filtering by hiding/showing markers based on their date relative to the cutoff.
-        // Updates the UI label for the selected days back.
-        function applyTimeFilter() {
-          const cutoff = getCutoffDate(currentDaysBack);
+        applyTimeFilter();
+    }
 
-          Object.values(incidentLayers).forEach(layer => {
+    function applyTimeFilter() {
+        const cutoff = getCutoffDate(currentDaysBack);
+        Object.values(incidentLayers).forEach(layer => {
             layer.eachLayer(marker => {
-              const content = marker.getPopup()?.getContent() || '';
-              const match = content.match(/<small>([^<]+)<\/small>/);
-              if (!match) return;
-
-              const logDate = new Date(match[1].trim());
-              if (currentDaysBack === 0 || logDate >= cutoff) {
-                if (!map.hasLayer(marker)) marker.addTo(layer);
-              } else {
-                map.removeLayer(marker);
-              }
+                const content = marker.getPopup()?.getContent() || '';
+                const match = content.match(/<small>([^<]+)<\/small>/);
+                if (!match) return;
+                const logDate = new Date(match[1].trim());
+                if (currentDaysBack === 0 || logDate >= cutoff) {
+                    if (!map.hasLayer(marker)) marker.addTo(layer);
+                } else {
+                    map.removeLayer(marker);
+                }
             });
-          });
-
-          // Updates the slider label with singular/plural handling for 'day'.
-          document.getElementById('daysValue').textContent = 
+        });
+        document.getElementById('daysValue').textContent = 
             currentDaysBack === 0 ? 'All time' : `Last ${currentDaysBack} day${currentDaysBack === 1 ? '' : 's'}`;
-        }
+    }
 
-        // Fetches logs and populates the recent logs table.
-        // Handles errors by returning an empty array to avoid UI breakage.
-        async function loadLogs() {
-          const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
-          const tbody = document.getElementById('logsTable').querySelector('tbody');
-          tbody.innerHTML = '';
-          logs.forEach(log => {
+    async function loadLogs() {
+        const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
+        const tbody = document.getElementById('logsTable').querySelector('tbody');
+        tbody.innerHTML = '';
+        logs.forEach(log => {
             const tr = document.createElement('tr');
             tr.innerHTML = `<td>${log[0]}</td><td>${log[1]}</td><td>${log[2]}</td><td>${log[3]}</td><td>${log[4]}</td><td>${log[5]}</td>`;
             tbody.appendChild(tr);
-          });
-        }
+        });
+    }
 
-        // Displays the dashboard: Hides auth section, initializes map/logs, sets up polling and event listeners.
-        async function showDashboard() {
-          document.getElementById('auth-section').style.display = 'none';
-          document.getElementById('dashboard').style.display = 'block';
+    async function showDashboard() {
+        document.getElementById('auth-section').style.display = 'none';
+        document.getElementById('dashboard').style.display = 'block';
 
-          await initMap();
-          await loadIncidents();
-          loadLogs();
+        await initMap();
+        await loadIncidents();
+        loadLogs();
 
-          // Polls for updates every 30 seconds to keep data fresh without real-time push.
-          setInterval(() => {
+        setInterval(() => {
             loadIncidents();
             loadLogs();
-          }, 30000);
+        }, 30000);
 
-          // Event listener for log submission: Prevents default, sends POST, refreshes data on success.
-          document.getElementById('logForm').onsubmit = async e => {
+        document.getElementById('logForm').onsubmit = async e => {
             e.preventDefault();
             const desc = document.getElementById('desc').value;
-            const type  = document.getElementById('type').value;
-            const loc  = document.getElementById('loc').value;
+            const type = document.getElementById('type').value;
+            const loc = document.getElementById('loc').value;
 
             try {
-              await fetchJSON(SCRIPT_URL, {
-                method: 'POST',
-                body: JSON.stringify({ action: 'logIncident', token: userToken, description: desc, type, location: loc })
-              });
-              loadIncidents();
-              loadLogs();
-              alert('Logged!');
+                await fetchJSON(SCRIPT_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'logIncident', token: userToken, description: desc, type, location: loc })
+                });
+                loadIncidents();
+                loadLogs();
+                alert('Logged!');
             } catch (err) {
-              alert('Error: ' + err.message);
+                alert('Error: ' + err.message);
             }
-          };
+        };
 
-          // Handles time filter buttons: Toggles active class and applies filter.
-          document.querySelectorAll('.time-btn').forEach(btn => {
+        document.querySelectorAll('.time-btn').forEach(btn => {
             btn.onclick = () => {
-              document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
-              btn.classList.add('active');
-              currentDaysBack = +btn.dataset.days;
-              applyTimeFilter();
+                document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentDaysBack = +btn.dataset.days;
+                applyTimeFilter();
             };
-          });
+        });
 
-          // Handles time slider input: Updates current days and applies filter dynamically.
-          const slider = document.getElementById('timeSlider');
-          if (slider) {
+        const slider = document.getElementById('timeSlider');
+        if (slider) {
             slider.oninput = e => {
-              currentDaysBack = +e.target.value;
-              applyTimeFilter();
+                currentDaysBack = +e.target.value;
+                applyTimeFilter();
             };
             slider.value = currentDaysBack;
-          }
         }
+    }
 
-        // App initialization: Handles invite-based signup or loads dashboard if token exists.
-        // Registers service worker for PWA offline capabilities.
-        async function init() {
-          if (inviteToken) {
+    async function init() {
+        if (inviteToken) {
             try {
-              const { valid } = await fetchJSON(`${SCRIPT_URL}?action=validateInvite&inviteToken=${inviteToken}`);
-              if (!valid) return alert('Invalid or used invite.');
+                const { valid } = await fetchJSON(`${SCRIPT_URL}?action=validateInvite&inviteToken=${inviteToken}`);
+                if (!valid) return alert('Invalid or used invite.');
 
-              // Dynamically injects signup form into auth section.
-              document.getElementById('auth-section').innerHTML = `
-                <h2>Join CoastGuard Seniors</h2>
-                <form id="signupForm">
-                  <input id="name" placeholder="Your name" required><br>
-                  <input id="role" placeholder="Role (optional)"><br>
-                  <button type="submit">Join</button>
-                </form>`;
+                document.getElementById('auth-section').innerHTML = `
+                    <h2>Join CoastGuard Seniors</h2>
+                    <form id="signupForm">
+                        <input id="name" placeholder="Your name" required><br>
+                        <input id="role" placeholder="Role (optional)"><br>
+                        <button type="submit">Join</button>
+                    </form>`;
 
-              // Event listener for signup: Sends POST, stores token, shows dashboard.
-              document.getElementById('signupForm').onsubmit = async e => {
-                e.preventDefault();
-                const name = document.getElementById('name').value;
-                const role = document.getElementById('role').value;
-                const { userToken: token } = await fetchJSON(SCRIPT_URL, {
-                  method: 'POST',
-                  body: JSON.stringify({ action: 'register', inviteToken, name, role })
-                });
-                localStorage.setItem('userToken', token);
-                userToken = token;
-                showDashboard();
-              };
+                document.getElementById('signupForm').onsubmit = async e => {
+                    e.preventDefault();
+                    const name = document.getElementById('name').value;
+                    const role = document.getElementById('role').value;
+
+                    try {
+                        const { userToken: newToken } = await fetchJSON(SCRIPT_URL, {
+                            method: 'POST',
+                            body: JSON.stringify({ action: 'register', inviteToken, name, role })
+                        });
+
+                        localStorage.setItem('userToken', newToken);
+                        userToken = newToken;
+                        showDashboard();
+                    } catch (err) {
+                        alert('Signup failed: ' + err.message);
+                    }
+                };
             } catch (err) {
-              alert('Signup error: ' + err.message);
+                alert('Error checking invite: ' + err.message);
             }
-          } else if (userToken) {
+        } else if (userToken) {
             showDashboard();
-          } else {
+        } else {
             document.getElementById('auth-section').innerHTML = '<p>Use your invite link or contact admin.</p>';
-          }
-          // Enables PWA features by registering the service worker if supported.
-          if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js').catch(console.error);
-          }
         }
 
-        init();
-    </script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./sw.js').catch(console.error);
+        }
+    }
+
+    init();
+</script>
 </body>
 
 </html>
+
