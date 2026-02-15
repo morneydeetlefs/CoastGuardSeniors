@@ -321,99 +321,112 @@
         // LOAD INCIDENTS – FIXED VERSION
         // ===================================================================
         async function loadIncidents() {
-            if (!userToken || !map) return;
+    if (!userToken || !map) return;
 
-            let logs = [];
-            try {
-                logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`);
-            } catch (err) {
-                console.error('Failed to load incidents:', err);
-                return; // Keep existing markers if fetch fails
-            }
+    let logs = [];
+    try {
+        logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`);
+    } catch (err) {
+        console.error('Failed to load incidents:', err);
+        // Do NOT clear layers on failure - keep previous view
+        return;
+    }
 
-            // Clear old layers
-            Object.keys(incidentLayers).forEach(key => {
-                const layer = incidentLayers[key];
-                layer.clearLayers();
-                map.removeLayer(layer);
-                delete incidentLayers[key];
+    // Clear old layers only on successful fetch
+    Object.keys(incidentLayers).forEach(key => {
+        const layer = incidentLayers[key];
+        layer.clearLayers();
+        map.removeLayer(layer);
+        delete incidentLayers[key];
+    });
+    incidentLayers = {};
+
+    logs.forEach(([date, userName, desc, type = 'Other', locStr, status]) => {
+        if (!locStr?.includes(',')) return;
+        const [latStr, lngStr] = locStr.split(',');
+        const lat = parseFloat(latStr.trim());
+        const lng = parseFloat(lngStr.trim());
+        if (isNaN(lat) || isNaN(lng)) return;
+
+        const color = type.includes('Red Wave') ? 'red' :
+                      type.includes('Amber Blaze') ? 'orange' : 'gray';
+
+        const marker = L.circleMarker([lat, lng], {
+            radius: 8,
+            fillColor: color,
+            color: '#000',
+            weight: 1,
+            fillOpacity: 0.8
+        });
+
+        const popup = `
+            <b style="font-size:1.2em">${type}</b><br>
+            <small>${new Date(date).toLocaleString('en-ZA')}</small><br><br>
+            <b>By:</b> ${userName}<br>
+            <b>Desc:</b> ${desc}<br>
+            <b>Loc:</b> ${lat.toFixed(4)}, ${lng.toFixed(4)}<br>
+            <b>Status:</b> ${status}
+        `;
+        marker.bindPopup(popup);
+
+        if (!incidentLayers[type]) incidentLayers[type] = L.layerGroup();
+        marker.addTo(incidentLayers[type]);
+    });
+
+    // Layers control logic
+    if (!map.layersControl) {
+        map.layersControl = L.control.layers(null, incidentLayers, {
+            position: 'topright',
+            collapsed: false
+        }).addTo(map);
+        Object.values(incidentLayers).forEach(layer => layer.addTo(map));
+    } else {
+        Object.entries(incidentLayers).forEach(([type, layer]) => {
+            let exists = false;
+            map.layersControl._layers.forEach(overlay => {
+                if (overlay.name === type) exists = true;
             });
-            incidentLayers = {};
-
-            // Rebuild layers
-            logs.forEach(([date, userName, desc, type = 'Other', locStr, status]) => {
-                if (!locStr?.includes(',')) return;
-                const [latStr, lngStr] = locStr.split(',');
-                const lat = parseFloat(latStr.trim());
-                const lng = parseFloat(lngStr.trim());
-                if (isNaN(lat) || isNaN(lng)) return;
-
-                const color = type.includes('Red Wave') ? 'red' :
-                              type.includes('Amber Blaze') ? 'orange' : 'gray';
-
-                const marker = L.circleMarker([lat, lng], {
-                    radius: 8,
-                    fillColor: color,
-                    color: '#000',
-                    weight: 1,
-                    fillOpacity: 0.8
-                });
-
-                const popup = `
-                    <b style="font-size:1.2em">${type}</b><br>
-                    <small>${new Date(date).toLocaleString('en-ZA')}</small><br><br>
-                    <b>By:</b> ${userName}<br>
-                    <b>Desc:</b> ${desc}<br>
-                    <b>Loc:</b> ${lat.toFixed(4)}, ${lng.toFixed(4)}<br>
-                    <b>Status:</b> ${status}
-                `;
-                marker.bindPopup(popup);
-
-                if (!incidentLayers[type]) incidentLayers[type] = L.layerGroup();
-                marker.addTo(incidentLayers[type]);
-            });
-
-            // Update or create layers control
-            if (!map.layersControl) {
-                map.layersControl = L.control.layers(null, incidentLayers, {
-                    position: 'topright',
-                    collapsed: false
-                }).addTo(map);
-                Object.values(incidentLayers).forEach(layer => layer.addTo(map));
-            } else {
-                Object.entries(incidentLayers).forEach(([type, layer]) => {
-                    let exists = false;
-                    map.layersControl._layers.forEach(overlay => {
-                        if (overlay.name === type) exists = true;
-                    });
-                    if (!exists) {
-                        map.layersControl.addOverlay(layer, type);
-                        layer.addTo(map);
-                    }
-                });
+            if (!exists) {
+                map.layersControl.addOverlay(layer, type);
+                layer.addTo(map);
             }
+        });
+    }
 
-            applyTimeFilter();
-        }
+    // Re-apply current filter after rebuild
+    applyTimeFilter();
+}
 
         function applyTimeFilter() {
-            const cutoff = getCutoffDate(currentDaysBack);
-            Object.values(incidentLayers).forEach(layer => {
-                layer.eachLayer(marker => {
-                    const content = marker.getPopup()?.getContent() || '';
-                    const match = content.match(/<small>([^<]+)<\/small>/);
-                    if (!match) return;
-                    const logDate = new Date(match[1].trim());
-                    if (currentDaysBack === 0 || logDate >= cutoff) {
-                        if (!map.hasLayer(marker)) marker.addTo(layer);
-                    } else {
-                        map.removeLayer(marker);
-                    }
-                });
-            });
-            document.getElementById('daysValue').textContent = 
-                currentDaysBack === 0 ? 'All time' : `Last ${currentDaysBack} day${currentDaysBack === 1 ? '' : 's'}`;
-        }
+    const cutoff = getCutoffDate(currentDaysBack);
+
+    Object.values(incidentLayers).forEach(layer => {
+        layer.eachLayer(marker => {
+            const content = marker.getPopup()?.getContent() || '';
+            const match = content.match(/<small>([^<]+)<\/small>/);
+            if (!match) return;
+
+            const logDateStr = match[1].trim();
+            const logDate = new Date(logDateStr);
+            if (isNaN(logDate.getTime())) return; // invalid date
+
+            if (currentDaysBack === 0 || logDate >= cutoff) {
+                // Show: ensure marker is on map (add to layer if not)
+                if (!map.hasLayer(marker)) {
+                    marker.addTo(layer);
+                }
+            } else {
+                // Hide: remove from map (but keep in layer for future filters)
+                if (map.hasLayer(marker)) {
+                    map.removeLayer(marker);
+                }
+            }
+        });
+    });
+
+    document.getElementById('daysValue').textContent = 
+        currentDaysBack === 0 ? 'All time' : `Last ${currentDaysBack} day${currentDaysBack === 1 ? '' : 's'}`;
+}
 
         async function loadLogs() {
             const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
@@ -476,3 +489,4 @@
     </script>
 </body>
 </html>
+
