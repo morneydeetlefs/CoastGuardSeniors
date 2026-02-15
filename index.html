@@ -241,14 +241,16 @@
 
     const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
 
-    // Step 1: Clear ALL previous incident markers & layers
-    Object.values(incidentLayers).forEach(layer => {
-        layer.clearLayers();          // remove all markers from group
-        map.removeLayer(layer);       // remove group from map
+    // 1. Completely remove all previous incident layers from map & memory
+    Object.keys(incidentLayers).forEach(key => {
+        const layer = incidentLayers[key];
+        layer.clearLayers();           // remove all markers inside
+        map.removeLayer(layer);        // remove group from map
+        delete incidentLayers[key];    // delete reference
     });
-    incidentLayers = {};              // reset the object completely
+    incidentLayers = {};               // reset object
 
-    // Step 2: Re-build layers from latest logs
+    // 2. Rebuild fresh layer groups from latest logs
     logs.forEach(([date, userName, desc, type = 'Other', locStr, status]) => {
         if (!locStr?.includes(',')) return;
         const [latStr, lngStr] = locStr.split(',');
@@ -277,41 +279,39 @@
         `;
         marker.bindPopup(popup);
 
-        // Create or reuse layer group for this type
+        // Create or reuse layer group per type
         if (!incidentLayers[type]) {
             incidentLayers[type] = L.layerGroup();
         }
         marker.addTo(incidentLayers[type]);
     });
 
-    // Step 3: Create layers control ONLY ONCE, then just update/add new types
+    // 3. Layers control management – only create once, then add new types
     if (!map.layersControl) {
-        // First time: create the control
         map.layersControl = L.control.layers(null, incidentLayers, {
             position: 'topright',
             collapsed: false
         }).addTo(map);
 
-        // Add & show all layers by default
+        // Add and show all layers by default
         Object.values(incidentLayers).forEach(layer => layer.addTo(map));
     } else {
-        // Subsequent calls: only add NEW layer types that didn't exist before
+        // Add any NEW layer types that didn't exist before
         Object.entries(incidentLayers).forEach(([type, layer]) => {
-            // Check if this type is already in the control
-            let alreadyAdded = false;
-            map.layersControl._layers.forEach(ctrlLayer => {
-                if (ctrlLayer.name === type) {
-                    alreadyAdded = true;
-                }
+            // Check if this overlay name already exists
+            let exists = false;
+            map.layersControl._layers.forEach(overlay => {
+                if (overlay.name === type) exists = true;
             });
 
-            if (!alreadyAdded) {
+            if (!exists) {
                 map.layersControl.addOverlay(layer, type);
                 layer.addTo(map); // show by default
             }
         });
     }
 
+    // 4. Apply current time filter
     applyTimeFilter();
 }
 
@@ -395,6 +395,7 @@
 </script>
 </body>
 </html>
+
 
 
 
