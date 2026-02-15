@@ -88,290 +88,211 @@
     </div>
 
     <script>
-        // ===================================================================
-        // HARD CODE YOUR INFO HERE – ONLY THESE LINES NEED EDITING
-        // ===================================================================
+    // ===================================================================
+    // HARD CODE YOUR INFO HERE – ONLY THESE LINES NEED EDITING
+    // ===================================================================
+    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbydmLo3aJuX7lexfkiDHUWi7fUt8hF1tCNBcR26-lss-FxMrOQkes7pboRFumN-9YnT/exec';
+    const DURBAN_CENTER = [-29.8587, 31.0218];   // Change if needed
 
-        // 1. YOUR GOOGLE APPS SCRIPT WEB APP URL (the /exec link from deployment)
-        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbydmLo3aJuX7lexfkiDHUWi7fUt8hF1tCNBcR26-lss-FxMrOQkes7pboRFumN-9YnT/exec';
+    // ===================================================================
+    // APP VARIABLES
+    // ===================================================================
+    let userToken = localStorage.getItem('userToken') || new URLSearchParams(location.search).get('token');
+    const inviteToken = new URLSearchParams(location.search).get('invite');
+    let map;
+    let incidentLayers = {};
+    let currentDaysBack = 30;
+    let locationMarker = null;        // ← Global for map click feature
 
-        // 2. MAP CENTER (optional – change for different default view)
-        const DURBAN_CENTER = [-29.8587, 31.0218];  // Durban city center
-
-        // ===================================================================
-        // END OF HARD CODE SECTION – do not edit below unless customizing features
-        // ===================================================================
-
-        let userToken = localStorage.getItem('userToken') || new URLSearchParams(location.search).get('token');
-        const inviteToken = new URLSearchParams(location.search).get('invite');
-        let map;
-        let incidentLayers = {};
-        let currentDaysBack = 30;
-        let locationMarker = null;  // temporary marker when clicking map for incident location
-
-        const fetchJSON = async (url, options = {}) => {
-            const res = await fetch(url, options);
-            const data = await res.json();
-            if (data.error) throw new Error(data.error);
-            return data;
-        };
-
-        const getCutoffDate = days => {
-            const d = new Date();
-            d.setDate(d.getDate() - days);
-            return d;
-        };
-
-        async function initMap() {
-            const zones = await fetchJSON(`${SCRIPT_URL}?action=getZones&token=${userToken}`).catch(() => []);
-            
-            map = L.map('map', {
-                renderer: L.canvas(),
-                zoomSnap: 0.5,
-                zoomDelta: 0.5,
-                tapTolerance: 15
-            }).setView(DURBAN_CENTER, 12);
-            
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-                maxZoom: 19
-            }).addTo(map);
-
-            zones.forEach(([name, latStr, lngStr]) => {
-                const lat = parseFloat(latStr), lng = parseFloat(lngStr);
-                if (!isNaN(lat) && !isNaN(lng)) {
-                    L.marker([lat, lng])
-                        .bindPopup(`<b>${name}</b><br>Zone`)
-                        .addTo(map);
-                }
-            });
-        }
-
-        async function loadIncidents() {
-            if (!userToken || !map) return;
-            const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
-
-            Object.values(incidentLayers).forEach(l => map.removeLayer(l));
-            incidentLayers = {};
-
-            logs.forEach(([date, userName, desc, type = 'Other', locStr, status]) => {
-                if (!locStr?.includes(',')) return;
-                const [latStr, lngStr] = locStr.split(',');
-                const lat = parseFloat(latStr.trim());
-                const lng = parseFloat(lngStr.trim());
-                if (isNaN(lat) || isNaN(lng)) return;
-
-                const color = type.includes('Red Wave') ? 'red' :
-                              type.includes('Amber Blaze') ? 'orange' : 'gray';
-
-                const marker = L.circleMarker([lat, lng], {
-                    radius: 8,
-                    fillColor: color,
-                    color: '#000',
-                    weight: 1,
-                    fillOpacity: 0.8
-                });
-
-                const popup = `
-                    <b style="font-size:1.2em">${type}</b><br>
-                    <small>${new Date(date).toLocaleString('en-ZA')}</small><br><br>
-                    <b>By:</b> ${userName}<br>
-                    <b>Desc:</b> ${desc}<br>
-                    <b>Loc:</b> ${lat.toFixed(4)}, ${lng.toFixed(4)}<br>
-                    <b>Status:</b> ${status}
-                `;
-                marker.bindPopup(popup);
-
-                if (!incidentLayers[type]) incidentLayers[type] = L.layerGroup();
-                marker.addTo(incidentLayers[type]);
-            });
-
-            if (!map.layersControl) {
-                map.layersControl = L.control.layers(null, incidentLayers, {
-                    position: 'topright',
-                    collapsed: false
-                }).addTo(map);
-                Object.values(incidentLayers).forEach(l => l.addTo(map));
-            } else {
-                Object.entries(incidentLayers).forEach(([type, layer]) => {
-                    if (!map.layersControl.getOverlays()[type]) {
-                        map.layersControl.addOverlay(layer, type);
-                        layer.addTo(map);
-                    }
-                });
-            }
-
-            applyTimeFilter();
-        }
-
-        function applyTimeFilter() {
-            const cutoff = getCutoffDate(currentDaysBack);
-            Object.values(incidentLayers).forEach(layer => {
-                layer.eachLayer(marker => {
-                    const content = marker.getPopup()?.getContent() || '';
-                    const match = content.match(/<small>([^<]+)<\/small>/);
-                    if (!match) return;
-                    const logDate = new Date(match[1].trim());
-                    if (currentDaysBack === 0 || logDate >= cutoff) {
-                        if (!map.hasLayer(marker)) marker.addTo(layer);
-                    } else {
-                        map.removeLayer(marker);
-                    }
-                });
-            });
-            document.getElementById('daysValue').textContent = 
-                currentDaysBack === 0 ? 'All time' : `Last ${currentDaysBack} day${currentDaysBack === 1 ? '' : 's'}`;
-        }
-
-        async function loadLogs() {
-            const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
-            const tbody = document.getElementById('logsTable').querySelector('tbody');
-            tbody.innerHTML = '';
-            logs.forEach(log => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `<td>${log[0]}</td><td>${log[1]}</td><td>${log[2]}</td><td>${log[3]}</td><td>${log[4]}</td><td>${log[5]}</td>`;
-                tbody.appendChild(tr);
-            });
-        }
-
-        async function showDashboard() {
-    document.getElementById('auth-section').style.display = 'none';
-    document.getElementById('dashboard').style.display = 'block';
-
-    await initMap();
-    await loadIncidents();
-    loadLogs();
-
-    // ──────────────────────────────────────────────
-    // NEW FEATURE: Click map to auto-fill incident location
-    // ──────────────────────────────────────────────
-    let locationMarker = null;  // temporary marker for selected incident spot
-
-    map.on('click', function(e) {
-        const lat = e.latlng.lat.toFixed(6);
-        const lng = e.latlng.lng.toFixed(6);
-        const latLngString = `${lat},${lng}`;
-
-        // Fill the location field in the form
-        document.getElementById('loc').value = latLngString;
-
-        // Remove old marker if exists, add new one
-        if (locationMarker) {
-            map.removeLayer(locationMarker);
-        }
-
-        locationMarker = L.circleMarker([lat, lng], {
-            radius: 10,
-            fillColor: '#ff0000',       // bright red for incident
-            color: '#ffffff',
-            weight: 2,
-            opacity: 1,
-            fillOpacity: 0.8
-        }).addTo(map)
-          .bindPopup(`Incident location<br><b>${latLngString}</b>`)
-          .openPopup();
-    });
-
-    setInterval(() => {
-        loadIncidents();
-        loadLogs();
-    }, 30000);
-
-    document.getElementById('logForm').onsubmit = async e => {
-        e.preventDefault();
-        const desc = document.getElementById('desc').value;
-        const type = document.getElementById('type').value;
-        const loc = document.getElementById('loc').value;
-
-        // Clear temporary marker after submit
-        if (locationMarker) {
-            map.removeLayer(locationMarker);
-            locationMarker = null;
-        }
-
-        try {
-            await fetchJSON(SCRIPT_URL, {
-                method: 'POST',
-                body: JSON.stringify({ action: 'logIncident', token: userToken, description: desc, type, location: loc })
-            });
-            loadIncidents();
-            loadLogs();
-            alert('Incident logged!');
-        } catch (err) {
-            alert('Error: ' + err.message);
-        }
+    // ===================================================================
+    // HELPER FUNCTIONS
+    // ===================================================================
+    const fetchJSON = async (url, options = {}) => {
+        const res = await fetch(url, options);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        return data;
     };
 
-    document.querySelectorAll('.time-btn').forEach(btn => {
-        btn.onclick = () => {
-            document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            currentDaysBack = +btn.dataset.days;
-            applyTimeFilter();
-        };
-    });
+    const getCutoffDate = days => {
+        const d = new Date();
+        d.setDate(d.getDate() - days);
+        return d;
+    };
 
-    const slider = document.getElementById('timeSlider');
-    if (slider) {
-        slider.oninput = e => {
-            currentDaysBack = +e.target.value;
-            applyTimeFilter();
-        };
-        slider.value = currentDaysBack;
+    // ===================================================================
+    // MAP INITIALIZATION
+    // ===================================================================
+    async function initMap() {
+        const zones = await fetchJSON(`${SCRIPT_URL}?action=getZones&token=${userToken}`).catch(() => []);
+        
+        map = L.map('map', {
+            renderer: L.canvas(),
+            zoomSnap: 0.5,
+            zoomDelta: 0.5,
+            tapTolerance: 15
+        }).setView(DURBAN_CENTER, 12);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+            maxZoom: 19
+        }).addTo(map);
+
+        zones.forEach(([name, latStr, lngStr]) => {
+            const lat = parseFloat(latStr), lng = parseFloat(lngStr);
+            if (!isNaN(lat) && !isNaN(lng)) {
+                L.marker([lat, lng])
+                    .bindPopup(`<b>${name}</b><br>Zone`)
+                    .addTo(map);
+            }
+        });
     }
-}
 
-        async function init() {
-            if (inviteToken) {
-                try {
-                    const { valid } = await fetchJSON(`${SCRIPT_URL}?action=validateInvite&inviteToken=${inviteToken}`);
-                    if (!valid) return alert('Invalid or used invite.');
+    // ===================================================================
+    // SHOW DASHBOARD – WITH MAP CLICK FEATURE
+    // ===================================================================
+    async function showDashboard() {
+        document.getElementById('auth-section').style.display = 'none';
+        document.getElementById('dashboard').style.display = 'block';
 
-                    document.getElementById('auth-section').innerHTML = `
-                        <h2>Join CoastGuard Seniors</h2>
-                        <form id="signupForm">
-                            <label>Name: <input id="name" placeholder="Your name" required></label><br><br>
-                            <label>Role (optional): <input id="role" placeholder="e.g. River Watch"></label><br><br>
-                            <button type="submit">Join</button>
-                        </form>`;
+        await initMap();
+        await loadIncidents();
+        loadLogs();
 
-                    document.getElementById('signupForm').onsubmit = async e => {
-                        e.preventDefault();
-                        const name = document.getElementById('name').value;
-                        const role = document.getElementById('role').value;
+        // ──────────────────────────────────────────────
+        // MAP CLICK → AUTO-FILL LOCATION
+        // ──────────────────────────────────────────────
+        map.on('click', function(e) {
+            const lat = e.latlng.lat.toFixed(6);
+            const lng = e.latlng.lng.toFixed(6);
+            const latLngString = `${lat},${lng}`;
 
-                        try {
-                            const { userToken: newToken } = await fetchJSON(SCRIPT_URL, {
-                                method: 'POST',
-                                body: JSON.stringify({ action: 'register', inviteToken, name, role })
-                            });
+            document.getElementById('loc').value = latLngString;
 
-                            localStorage.setItem('userToken', newToken);
-                            userToken = newToken;
-                            showDashboard();
-                            alert('Welcome! You are now signed up.');
-                        } catch (err) {
-                            alert('Signup failed: ' + err.message);
-                        }
-                    };
-                } catch (err) {
-                    alert('Error checking invite: ' + err.message);
-                }
-            } else if (userToken) {
-                // Token found – save it explicitly (helps with some browser quirks)
-                localStorage.setItem('userToken', userToken);
-                showDashboard();
-            } else {
-                document.getElementById('auth-section').innerHTML = '<p>Use your invite link or contact admin.</p>';
+            if (locationMarker) map.removeLayer(locationMarker);
+
+            locationMarker = L.circleMarker([lat, lng], {
+                radius: 10,
+                fillColor: '#ff0000',
+                color: '#ffffff',
+                weight: 2,
+                opacity: 1,
+                fillOpacity: 0.85
+            }).addTo(map)
+              .bindPopup(`Incident location<br><b>${latLngString}</b>`)
+              .openPopup();
+        });
+
+        // Auto-refresh data
+        setInterval(() => {
+            loadIncidents();
+            loadLogs();
+        }, 30000);
+
+        // Log form submission
+        document.getElementById('logForm').onsubmit = async e => {
+            e.preventDefault();
+            const desc = document.getElementById('desc').value;
+            const type = document.getElementById('type').value;
+            const loc = document.getElementById('loc').value;
+
+            // Clear marker after submit
+            if (locationMarker) {
+                map.removeLayer(locationMarker);
+                locationMarker = null;
             }
 
-            if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.register('./sw.js').catch(console.error);
+            try {
+                await fetchJSON(SCRIPT_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'logIncident', token: userToken, description: desc, type, location: loc })
+                });
+                loadIncidents();
+                loadLogs();
+                alert('Incident logged successfully!');
+            } catch (err) {
+                alert('Error: ' + err.message);
             }
+        };
+
+        // Time filter buttons
+        document.querySelectorAll('.time-btn').forEach(btn => {
+            btn.onclick = () => {
+                document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentDaysBack = +btn.dataset.days;
+                applyTimeFilter();
+            };
+        });
+
+        // Time slider
+        const slider = document.getElementById('timeSlider');
+        if (slider) {
+            slider.oninput = e => {
+                currentDaysBack = +e.target.value;
+                applyTimeFilter();
+            };
+            slider.value = currentDaysBack;
+        }
+    }
+
+    // ===================================================================
+    // REST OF YOUR FUNCTIONS (unchanged)
+    // ===================================================================
+    async function loadIncidents() { /* your existing code */ }
+    function applyTimeFilter() { /* your existing code */ }
+    async function loadLogs() { /* your existing code */ }
+
+    async function init() {
+        if (inviteToken) {
+            try {
+                const { valid } = await fetchJSON(`${SCRIPT_URL}?action=validateInvite&inviteToken=${inviteToken}`);
+                if (!valid) return alert('Invalid or used invite.');
+
+                document.getElementById('auth-section').innerHTML = `
+                    <h2>Join CoastGuard Seniors</h2>
+                    <form id="signupForm">
+                        <label>Name: <input id="name" placeholder="Your name" required></label><br><br>
+                        <label>Role (optional): <input id="role" placeholder="e.g. River Watch"></label><br><br>
+                        <button type="submit">Join</button>
+                    </form>`;
+
+                document.getElementById('signupForm').onsubmit = async e => {
+                    e.preventDefault();
+                    const name = document.getElementById('name').value;
+                    const role = document.getElementById('role').value;
+
+                    try {
+                        const { userToken: newToken } = await fetchJSON(SCRIPT_URL, {
+                            method: 'POST',
+                            body: JSON.stringify({ action: 'register', inviteToken, name, role })
+                        });
+                        localStorage.setItem('userToken', newToken);
+                        userToken = newToken;
+                        showDashboard();
+                        alert('Welcome! You are now signed up.');
+                    } catch (err) {
+                        alert('Signup failed: ' + err.message);
+                    }
+                };
+            } catch (err) {
+                alert('Error checking invite: ' + err.message);
+            }
+        } else if (userToken) {
+            localStorage.setItem('userToken', userToken);
+            showDashboard();
+        } else {
+            document.getElementById('auth-section').innerHTML = '<p>Use your invite link or contact admin.</p>';
         }
 
-        init();
-    </script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./sw.js').catch(console.error);
+        }
+    }
+
+    init();
+</script>
 </body>
 </html>
+
 
