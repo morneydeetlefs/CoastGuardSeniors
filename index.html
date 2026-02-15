@@ -183,10 +183,17 @@
         });
 
         // Auto-refresh
-        setInterval(() => {
-            loadIncidents();
-            loadLogs();
-        }, 30000);
+        setInterval(async () => {
+    try {
+        await loadIncidents();   // will throw if fetch fails
+        loadLogs();
+    } catch (err) {
+        console.error('Auto-refresh failed:', err);
+        alert('Could not refresh incidents. Check internet or try manual refresh.');
+        // Optional: stop auto-refresh if it keeps failing
+        // clearInterval(intervalId);  // if you assign setInterval to a variable
+    }
+}, 30000);
 
         // Log form
         document.getElementById('logForm').onsubmit = async e => {
@@ -239,18 +246,23 @@
     async function loadIncidents() {
     if (!userToken || !map) return;
 
-    const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
+    let logs = [];
+    try {
+        logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`);
+    } catch (err) {
+        console.error('Failed to load incidents:', err);
+        // Optional: show user message once per failure
+        if (!window.lastRefreshErrorShown || Date.now() - window.lastRefreshErrorShown > 60000) {
+            alert('Failed to load recent incidents. Please check connection or refresh page.');
+            window.lastRefreshErrorShown = Date.now();
+        }
+        return;  // do NOT clear layers if fetch fails
+    }
 
-    // 1. Completely remove all previous incident layers from map & memory
-    Object.keys(incidentLayers).forEach(key => {
-        const layer = incidentLayers[key];
-        layer.clearLayers();           // remove all markers inside
-        map.removeLayer(layer);        // remove group from map
-        delete incidentLayers[key];    // delete reference
-    });
-    incidentLayers = {};               // reset object
+    // Only clear & rebuild if fetch succeeded
+    Object.values(incidentLayers).forEach(l => map.removeLayer(l));
+    incidentLayers = {};
 
-    // 2. Rebuild fresh layer groups from latest logs
     logs.forEach(([date, userName, desc, type = 'Other', locStr, status]) => {
         if (!locStr?.includes(',')) return;
         const [latStr, lngStr] = locStr.split(',');
@@ -279,39 +291,30 @@
         `;
         marker.bindPopup(popup);
 
-        // Create or reuse layer group per type
-        if (!incidentLayers[type]) {
-            incidentLayers[type] = L.layerGroup();
-        }
+        if (!incidentLayers[type]) incidentLayers[type] = L.layerGroup();
         marker.addTo(incidentLayers[type]);
     });
 
-    // 3. Layers control management – only create once, then add new types
+    // Update layers control (same safe logic as before)
     if (!map.layersControl) {
         map.layersControl = L.control.layers(null, incidentLayers, {
             position: 'topright',
             collapsed: false
         }).addTo(map);
-
-        // Add and show all layers by default
         Object.values(incidentLayers).forEach(layer => layer.addTo(map));
     } else {
-        // Add any NEW layer types that didn't exist before
         Object.entries(incidentLayers).forEach(([type, layer]) => {
-            // Check if this overlay name already exists
-            let exists = false;
+            let alreadyExists = false;
             map.layersControl._layers.forEach(overlay => {
-                if (overlay.name === type) exists = true;
+                if (overlay.name === type) alreadyExists = true;
             });
-
-            if (!exists) {
+            if (!alreadyExists) {
                 map.layersControl.addOverlay(layer, type);
-                layer.addTo(map); // show by default
+                layer.addTo(map);
             }
         });
     }
 
-    // 4. Apply current time filter
     applyTimeFilter();
 }
 
@@ -395,6 +398,7 @@
 </script>
 </body>
 </html>
+
 
 
 
