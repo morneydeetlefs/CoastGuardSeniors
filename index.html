@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <!-- v21  -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes">
     <meta name="theme-color" content="#4CAF50">
@@ -60,6 +59,15 @@
             background: #4CAF50;
             transition: width 0.4s ease;
         }
+
+        /* Admin console styling */
+        #adminConsole {
+            margin-top: 40px;
+            padding: 20px;
+            border: 2px solid #4CAF50;
+            border-radius: 12px;
+            background: #f8fff8;
+        }
     </style>
 </head>
 <body>
@@ -111,10 +119,30 @@
         </table>
     </div>
 
+    <!-- Admin Console (hidden by default) -->
+    <div id="adminConsole" style="display: none; margin-top: 40px; padding: 20px; border: 2px solid #4CAF50; border-radius: 12px; background: #f8fff8;">
+        <h2 style="color: #4CAF50; margin-top: 0;">Admin Console</h2>
+
+        <button id="generateInviteBtn" style="padding: 12px 20px; font-size: 1.1em; margin: 10px 0;">Generate New Invite Code</button>
+        <div id="inviteResult" style="margin: 15px 0; padding: 12px; background: #e8ffe8; border: 1px solid #4CAF50; border-radius: 8px; display: none;"></div>
+
+        <h3>Registered Users</h3>
+        <table id="usersTable">
+            <thead><tr><th>Name</th><th>Role</th><th>Joined</th></tr></thead>
+            <tbody></tbody>
+        </table>
+
+        <h3>All Logs (Unfiltered Admin View)</h3>
+        <table id="adminLogsTable">
+            <thead><tr><th>Date</th><th>User</th><th>Description</th><th>Type</th><th>Location</th><th>Status</th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
     <!-- Loading overlay -->
     <div id="loadingOverlay">
         <div id="loadingContent">
-            <h3 id="loadingMessage">Loading recent incidents...</h3>
+            <h3 id="loadingMessage">Loading...</h3>
             <div id="progressBarContainer">
                 <div id="progressBar"></div>
             </div>
@@ -124,7 +152,7 @@
 
     <script>
         // ===================================================================
-        // HARD CODE YOUR INFO HERE – ONLY THESE LINES NEED EDITING
+        // HARD CODE YOUR INFO HERE
         // ===================================================================
         const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbydmLo3aJuX7lexfkiDHUWi7fUt8hF1tCNBcR26-lss-FxMrOQkes7pboRFumN-9YnT/exec';
         const ELYSIUM_CENTER = [-30.46667, 30.63333];
@@ -135,7 +163,7 @@
         let userToken = localStorage.getItem('userToken') || new URLSearchParams(location.search).get('token');
         const inviteToken = new URLSearchParams(location.search).get('invite');
         let map;
-        let incidentLayers = {};        // type → LayerGroup (holds ALL markers forever)
+        let incidentLayers = {};
         let currentDaysBack = 30;
         let locationMarker = null;
 
@@ -206,7 +234,7 @@
         }
 
         // ===================================================================
-        // LOAD ALL INCIDENTS ONCE (called on startup + after new log)
+        // LOAD ALL INCIDENTS ONCE
         // ===================================================================
         async function loadIncidents() {
             if (!userToken || !map) return;
@@ -277,17 +305,6 @@
                 }).addTo(map);
 
                 Object.values(incidentLayers).forEach(layer => layer.addTo(map));
-            } else {
-                Object.entries(incidentLayers).forEach(([type, layer]) => {
-                    let exists = false;
-                    map.layersControl._layers.forEach(ov => {
-                        if (ov.name === type) exists = true;
-                    });
-                    if (!exists) {
-                        map.layersControl.addOverlay(layer, type);
-                        layer.addTo(map);
-                    }
-                });
             }
 
             hideLoading();
@@ -295,7 +312,7 @@
         }
 
         // ===================================================================
-        // TIME FILTER – LOCAL ONLY (hide/show existing markers & table rows)
+        // TIME FILTER – LOCAL ONLY
         // ===================================================================
         function applyTimeFilter() {
             const cutoff = getCutoffDate(currentDaysBack);
@@ -317,24 +334,10 @@
                     }
                 });
             });
-
-            // Filter table rows
-            const rows = document.querySelectorAll('#logsTable tbody tr');
-            rows.forEach(row => {
-                const dateCell = row.cells[0];
-                const dateStr = dateCell.textContent.trim();
-                const logDate = new Date(dateStr);
-
-                if (currentDaysBack === 0 || (logDate >= cutoff && !isNaN(logDate))) {
-                    row.style.display = '';
-                } else {
-                    row.style.display = 'none';
-                }
-            });
         }
 
         // ===================================================================
-        // LOAD LOGS TABLE (shows all logs)
+        // LOAD LOGS TABLE (all logs)
         // ===================================================================
         async function loadLogs() {
             const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
@@ -417,9 +420,52 @@
                     document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
                     currentDaysBack = +btn.dataset.days;
-                    applyTimeFilter();  // Local filter: no fetch
+                    applyTimeFilter();
                 };
             });
+
+            // ──────────────────────────────────────────────
+            // ADMIN CONSOLE CHECK & LOAD
+            // ──────────────────────────────────────────────
+            const role = localStorage.getItem('userRole') || 'user';
+            console.log('Current role:', role); // debug
+
+            if (role.toLowerCase() === 'admin' || role === 'Coordinator') {
+                const adminConsole = document.getElementById('adminConsole');
+                if (adminConsole) {
+                    adminConsole.style.display = 'block';
+                    console.log('Admin console shown');
+
+                    // Load users list
+                    const users = await fetchJSON(`${SCRIPT_URL}?action=getUsers&token=${userToken}`).catch(() => []);
+                    const usersTbody = document.getElementById('usersTable').querySelector('tbody');
+                    usersTbody.innerHTML = '';
+                    users.forEach(user => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `<td>${user[0] || '-'}</td><td>${user[1] || '-'}</td><td>${user[2] || '-'}</td>`;
+                        usersTbody.appendChild(tr);
+                    });
+
+                    // Generate invite button
+                    document.getElementById('generateInviteBtn').onclick = async () => {
+                        try {
+                            const result = await fetchJSON(`${SCRIPT_URL}?action=generateInvite&token=${userToken}`);
+                            const inviteCode = result.inviteToken || result.invite;
+                            const link = `${window.location.origin}${window.location.pathname}?invite=${inviteCode}`;
+                            document.getElementById('inviteResult').innerHTML = `
+                                New invite link created:<br>
+                                <strong>${link}</strong><br>
+                                <small>Share this privately with new members.</small>
+                            `;
+                            document.getElementById('inviteResult').style.display = 'block';
+                        } catch (err) {
+                            alert('Failed to generate invite: ' + err.message);
+                        }
+                    };
+                } else {
+                    console.error('Admin console element not found in HTML');
+                }
+            }
         }
 
         // ===================================================================
@@ -475,4 +521,3 @@
     </script>
 </body>
 </html>
-
