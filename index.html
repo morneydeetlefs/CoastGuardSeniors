@@ -138,7 +138,7 @@
     let userToken = localStorage.getItem('userToken') || new URLSearchParams(location.search).get('token');
     const inviteToken = new URLSearchParams(location.search).get('invite');
     let map;
-    let incidentLayers = {};        // type → LayerGroup (always keeps all markers)
+    let incidentLayers = {};        // type → LayerGroup (holds ALL markers forever)
     let currentDaysBack = 30;
     let locationMarker = null;
 
@@ -209,7 +209,7 @@
     }
 
     // ===================================================================
-    // LOAD INCIDENTS (creates all markers once)
+    // LOAD ALL INCIDENTS ONCE (called on page load and after new log)
     // ===================================================================
     async function loadIncidents() {
         if (!userToken || !map) return;
@@ -225,7 +225,7 @@
             return;
         }
 
-        // Clear old incident markers (keep zone markers)
+        // Clear existing incident markers (keep zones)
         map.eachLayer(layer => {
             if (layer instanceof L.CircleMarker && layer.options.incidentMarker) {
                 map.removeLayer(layer);
@@ -272,7 +272,7 @@
             marker.addTo(incidentLayers[type]);
         });
 
-        // Create or update layers control
+        // Create layers control (once)
         if (!map.layersControl) {
             map.layersControl = L.control.layers(null, incidentLayers, {
                 position: 'topright',
@@ -294,15 +294,16 @@
         }
 
         hideLoading();
-        applyTimeFilter();
+        applyTimeFilter(); // Apply current filter after loading
     }
 
     // ===================================================================
-    // TIME FILTER – SHOW/HIDE MARKERS
+    // TIME FILTER – LOCAL FILTERING ONLY
     // ===================================================================
     function applyTimeFilter() {
         const cutoff = getCutoffDate(currentDaysBack);
 
+        // Filter markers
         Object.values(incidentLayers).forEach(layer => {
             layer.eachLayer(marker => {
                 const content = marker.getPopup()?.getContent() || '';
@@ -319,10 +320,12 @@
                 }
             });
         });
+
+        // No need to update any text since slider is removed
     }
 
     // ===================================================================
-    // LOAD LOGS TABLE (shows all logs)
+    // LOAD LOGS TABLE (shows all logs – no filter)
     // ===================================================================
     async function loadLogs() {
         const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
@@ -399,16 +402,13 @@
             }
         };
 
-        // Time filter buttons – refresh data on change
+        // Time filter buttons – local filter only (no re-fetch)
         document.querySelectorAll('.time-btn').forEach(btn => {
-            btn.onclick = async () => {
+            btn.onclick = () => {
                 document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 currentDaysBack = +btn.dataset.days;
-                showLoading('Filtering...');
-                await loadIncidents();
-                loadLogs();
-                hideLoading();
+                applyTimeFilter();  // Only local filter, no fetch
             };
         });
     }
@@ -466,6 +466,7 @@
 </script>
 </body>
 </html>
+
 
 
 
