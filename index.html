@@ -241,10 +241,14 @@
 
     const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
 
-    // Clear previous incident layers
-    Object.values(incidentLayers).forEach(l => map.removeLayer(l));
-    incidentLayers = {};
+    // Step 1: Clear ALL previous incident markers & layers
+    Object.values(incidentLayers).forEach(layer => {
+        layer.clearLayers();          // remove all markers from group
+        map.removeLayer(layer);       // remove group from map
+    });
+    incidentLayers = {};              // reset the object completely
 
+    // Step 2: Re-build layers from latest logs
     logs.forEach(([date, userName, desc, type = 'Other', locStr, status]) => {
         if (!locStr?.includes(',')) return;
         const [latStr, lngStr] = locStr.split(',');
@@ -273,25 +277,37 @@
         `;
         marker.bindPopup(popup);
 
-        if (!incidentLayers[type]) incidentLayers[type] = L.layerGroup();
+        // Create or reuse layer group for this type
+        if (!incidentLayers[type]) {
+            incidentLayers[type] = L.layerGroup();
+        }
         marker.addTo(incidentLayers[type]);
     });
 
-    // Simplified & more reliable layers control
+    // Step 3: Create layers control ONLY ONCE, then just update/add new types
     if (!map.layersControl) {
+        // First time: create the control
         map.layersControl = L.control.layers(null, incidentLayers, {
             position: 'topright',
             collapsed: false
         }).addTo(map);
 
-        // Show all layers by default
+        // Add & show all layers by default
         Object.values(incidentLayers).forEach(layer => layer.addTo(map));
     } else {
-        // Add any new types that appeared
+        // Subsequent calls: only add NEW layer types that didn't exist before
         Object.entries(incidentLayers).forEach(([type, layer]) => {
-            if (!map.hasLayer(layer)) {
+            // Check if this type is already in the control
+            let alreadyAdded = false;
+            map.layersControl._layers.forEach(ctrlLayer => {
+                if (ctrlLayer.name === type) {
+                    alreadyAdded = true;
+                }
+            });
+
+            if (!alreadyAdded) {
                 map.layersControl.addOverlay(layer, type);
-                layer.addTo(map);
+                layer.addTo(map); // show by default
             }
         });
     }
@@ -379,6 +395,7 @@
 </script>
 </body>
 </html>
+
 
 
 
