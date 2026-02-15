@@ -449,4 +449,39 @@
                             <button type="submit">Join</button>
                         </form>`;
 
-                    document.getElementById('signupForm').onsubmit
+                    document.getElementById('signupForm').onsubmit = async e => {
+                        e.preventDefault();
+                        const name = document.getElementById('name').value;
+                        const role = document.getElementById('role').value;
+                        try {
+                            const { userToken: newToken } = await fetchJSON(SCRIPT_URL, {
+                                method: 'POST',
+                                body: JSON.stringify({ action: 'register', inviteToken, name, role })
+                            });
+                            localStorage.setItem('userToken', newToken);
+                            userToken = newToken;
+                            showDashboard();
+                            alert('Welcome! You are now signed up.');
+                        } catch (err) {
+                            alert('Signup failed: ' + err.message);
+                        }
+                    };
+                } catch (err) {
+                    alert('Error checking invite: ' + err.message);
+                }
+            } else if (userToken) {
+                localStorage.setItem('userToken', userToken);
+                showDashboard();
+            } else {
+                document.getElementById('auth-section').innerHTML = '<p>Use your invite link or contact admin.</p>';
+            }
+
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('./sw.js').catch(console.error);
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>
