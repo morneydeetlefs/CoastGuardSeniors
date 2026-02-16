@@ -85,7 +85,6 @@
             <li><b>Budget:</b> R7k/year for cams, kits, badges.</li>
             <li><b>Alerts:</b> Use codes like "Red Wave" for flood/loot.</li>
         </ul>
-
         <h2>Map: Zones & Hotspots</h2>
         <div id="map"></div>
 
@@ -97,6 +96,9 @@
                 <button class="time-btn" data-days="7">Last 7 Days</button>
                 <button class="time-btn" data-days="30">Last 30 Days</button>
             </div>
+            <button id="refreshBtn" style="padding: 12px 20px; font-size: 1.1em; background: #FF9800; color: white; border: none; border-radius: 6px; cursor: pointer; margin-top: 10px;">
+                Refresh Data
+            </button>
         </div>
 
         <h2>Log Incident/Alert</h2>
@@ -487,7 +489,16 @@
                     applyTimeFilter();
                 };
             });
-
+            // Refresh button – hard reload with loading feedback
+            document.getElementById('refreshBtn').onclick = () => {
+                showLoading('Refreshing data from server...');
+    
+                // Small delay to let loading overlay appear
+                setTimeout(() => {
+                // Force full page reload (equivalent to Ctrl + Shift + R)
+                window.location.reload(true);  // true = force reload from server, bypass cache
+                }, 500);
+            };
             // ──────────────────────────────────────────────
             // ADMIN CONSOLE – SHOW & LOAD IF ADMIN
             // ──────────────────────────────────────────────
@@ -612,3 +623,4 @@
     </script>
 </body>
 </html>
+
