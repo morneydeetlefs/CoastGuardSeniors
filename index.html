@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-    <!-- v32 -->
+    <!-- v33 -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes">
@@ -166,7 +166,6 @@
     let userToken = localStorage.getItem('userToken') || new URLSearchParams(location.search).get('token');
     const inviteToken = new URLSearchParams(location.search).get('invite');
     let map;
-    let mapInitialized = false;
     let incidentLayers = {};
     let currentDaysBack = 30;
     let locationMarker = null;
@@ -210,11 +209,9 @@
     }
 
     // ===================================================================
-    // MAP INITIALIZATION – RUNS ONLY ONCE
+    // MAP INITIALIZATION
     // ===================================================================
     async function initMap() {
-        if (mapInitialized) return;
-
         const zones = await fetchJSON(`${SCRIPT_URL}?action=getZones&token=${userToken}`).catch(() => []);
 
         map = L.map('map', {
@@ -237,12 +234,10 @@
                     .addTo(map);
             }
         });
-
-        mapInitialized = true;
     }
 
     // ===================================================================
-    // LOAD ALL INCIDENTS FROM SHEETS
+    // LOAD INCIDENTS (called on startup and after new log)
     // ===================================================================
     async function loadIncidents() {
         if (!userToken || !map) return;
@@ -258,14 +253,7 @@
             return;
         }
 
-        // Clear existing incident markers
-        map.eachLayer(layer => {
-            if (layer instanceof L.CircleMarker && layer.options.incidentMarker) {
-                map.removeLayer(layer);
-            }
-        });
-
-        // Reset layer groups
+        // Clear old layers
         Object.values(incidentLayers).forEach(layer => {
             layer.clearLayers();
             map.removeLayer(layer);
@@ -344,7 +332,7 @@
     }
 
     // ===================================================================
-    // LOAD LOGS TABLE (all logs)
+    // LOAD LOGS TABLE
     // ===================================================================
     async function loadLogs() {
         const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
@@ -366,11 +354,7 @@
 
         showLoading('Loading map and zones...');
 
-        if (!mapInitialized) {
-            await initMap();
-            mapInitialized = true;
-        }
-
+        await initMap();
         await loadIncidents();
         loadLogs();
 
@@ -396,7 +380,7 @@
               .openPopup();
         });
 
-        // Log form – optimistic UI (add locally)
+        // Log form – optimistic UI
         document.getElementById('logForm').onsubmit = async e => {
             e.preventDefault();
             const desc = document.getElementById('desc').value.trim();
@@ -421,7 +405,7 @@
                     body: JSON.stringify({ action: 'logIncident', token: userToken, description: desc, type, location: loc })
                 });
 
-                // Add to table locally
+                // Add locally
                 const now = new Date().toLocaleString('en-ZA');
                 const tbody = document.getElementById('logsTable').querySelector('tbody');
                 const tr = document.createElement('tr');
@@ -488,7 +472,7 @@
             };
         });
 
-        // Refresh button – reload data without re-init map
+        // Refresh button – full reload of data
         document.getElementById('refreshBtn').onclick = async () => {
             showLoading('Refreshing data from server...');
             try {
@@ -503,141 +487,116 @@
         };
 
         // ──────────────────────────────────────────────
-        // ADMIN CONSOLE – SHOW & LOAD IF ADMIN
+        // ADMIN CONSOLE
         // ──────────────────────────────────────────────
         const role = await getUserRole();
-        console.log('Current role:', role);
-
         if (role.toLowerCase() === 'admin' || role === 'Coordinator') {
-            const adminConsole = document.getElementById('adminConsole');
-            if (adminConsole) {
-                adminConsole.style.display = 'block';
-                console.log('Admin console shown');
+            document.getElementById('adminConsole').style.display = 'block';
 
-                // Load users
-                const users = await fetchJSON(`${SCRIPT_URL}?action=getUsers&token=${userToken}`).catch(() => []);
-                const usersTbody = document.getElementById('usersTable').querySelector('tbody');
-                usersTbody.innerHTML = '';
-                users.forEach(user => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `<td>${user[0] || '-'}</td><td>${user[1] || '-'}</td><td>${user[2] || '-'}</td>`;
-                    usersTbody.appendChild(tr);
-                });
+            // Load users
+            const users = await fetchJSON(`${SCRIPT_URL}?action=getUsers&token=${userToken}`).catch(() => []);
+            const usersTbody = document.getElementById('usersTable').querySelector('tbody');
+            usersTbody.innerHTML = '';
+            users.forEach(user => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${user[0] || '-'}</td><td>${user[1] || '-'}</td><td>${user[2] || '-'}</td>`;
+                usersTbody.appendChild(tr);
+            });
 
-                // Generate invite
-                document.getElementById('generateInviteBtn').onclick = async () => {
+            // Generate invite
+            document.getElementById('generateInviteBtn').onclick = async () => {
+                try {
+                    const result = await fetchJSON(`${SCRIPT_URL}?action=generateInvite&token=${userToken}`);
+                    const inviteCode = result.inviteToken || result.invite;
+                    const link = `${window.location.origin}${window.location.pathname}?invite=${inviteCode}`;
+                    document.getElementById('inviteResult').innerHTML = `
+                        New invite link created:<br>
+                        <strong>${link}</strong><br>
+                        <small>Share this privately with new members.</small>
+                    `;
+                    document.getElementById('inviteResult').style.display = 'block';
+                } catch (err) {
+                    alert('Failed to generate invite: ' + err.message);
+                }
+            };
+
+            // Load full logs + action buttons
+            const adminLogs = await fetchJSON(`${SCRIPT_URL}?action=getFullLogs&token=${userToken}`).catch(() => []);
+            const adminTbody = document.getElementById('adminLogsTable').querySelector('tbody');
+            adminTbody.innerHTML = '';
+            adminLogs.forEach((log, index) => {
+                const loc = log[4] || '';
+                const tr = document.createElement('tr');
+                tr.setAttribute('data-loc', loc);
+                tr.innerHTML = `
+                    <td>${log[0]}</td>
+                    <td>${log[1]}</td>
+                    <td>${log[2]}</td>
+                    <td>${log[3]}</td>
+                    <td>${loc}</td>
+                    <td>${log[5]}</td>
+                    <td>
+                        ${log[5] !== 'Resolved' ? `<button class="resolveBtn" data-index="${index}">Resolve</button>` : 'Resolved'}
+                        <button class="deleteBtn" data-index="${index}" style="background:#f44336; margin-left:8px;">Delete</button>
+                    </td>
+                `;
+                adminTbody.appendChild(tr);
+            });
+
+            // Resolve handler
+            document.querySelectorAll('.resolveBtn').forEach(btn => {
+                btn.onclick = async () => {
+                    if (!confirm('Mark as Resolved?')) return;
+                    const index = btn.dataset.index;
                     try {
-                        const result = await fetchJSON(`${SCRIPT_URL}?action=generateInvite&token=${userToken}`);
-                        const inviteCode = result.inviteToken || result.invite;
-                        const link = `${window.location.origin}${window.location.pathname}?invite=${inviteCode}`;
-                        document.getElementById('inviteResult').innerHTML = `
-                            New invite link created:<br>
-                            <strong>${link}</strong><br>
-                            <small>Share this privately with new members.</small>
-                        `;
-                        document.getElementById('inviteResult').style.display = 'block';
+                        await fetchJSON(`${SCRIPT_URL}?action=markResolved&token=${userToken}&rowIndex=${index}`);
+                        btn.closest('tr').cells[5].textContent = 'Resolved';
+                        btn.remove();
                     } catch (err) {
-                        alert('Failed to generate invite: ' + err.message);
+                        alert('Failed: ' + err.message);
                     }
                 };
+            });
 
-                // Load full logs + action buttons
-                const adminLogs = await fetchJSON(`${SCRIPT_URL}?action=getFullLogs&token=${userToken}`).catch(() => []);
-                const adminTbody = document.getElementById('adminLogsTable').querySelector('tbody');
-                adminTbody.innerHTML = '';
-                adminLogs.forEach((log, index) => {
-                    const loc = log[4] || '';
-                    const tr = document.createElement('tr');
-                    tr.setAttribute('data-loc', loc);
-                    tr.innerHTML = `
-                        <td>${log[0]}</td>
-                        <td>${log[1]}</td>
-                        <td>${log[2]}</td>
-                        <td>${log[3]}</td>
-                        <td>${loc}</td>
-                        <td>${log[5]}</td>
-                        <td>
-                            ${log[5] !== 'Resolved' ? `<button class="resolveBtn" data-index="${index}">Resolve</button>` : 'Resolved'}
-                            <button class="deleteBtn" data-index="${index}" style="background:#f44336; margin-left:8px;">Delete</button>
-                        </td>
-                    `;
-                    adminTbody.appendChild(tr);
-                });
+            // Delete handler – remove locally + refresh data
+            document.querySelectorAll('.deleteBtn').forEach(btn => {
+                btn.onclick = async () => {
+                    if (!confirm('Delete permanently?')) return;
+                    const row = btn.closest('tr');
+                    const loc = row.getAttribute('data-loc') || row.cells[4].textContent.trim();
+                    const index = btn.dataset.index;
 
-                // Resolve handler – local update
-                document.querySelectorAll('.resolveBtn').forEach(btn => {
-                    btn.onclick = async () => {
-                        if (!confirm('Mark as Resolved?')) return;
-                        const row = btn.closest('tr');
-                        const index = btn.dataset.index;
-                        try {
-                            await fetchJSON(`${SCRIPT_URL}?action=markResolved&token=${userToken}&rowIndex=${index}`);
-                            row.cells[5].textContent = 'Resolved';
-                            btn.remove();
-                            alert('Resolved!');
-                        } catch (err) {
-                            alert('Failed: ' + err.message);
-                        }
-                    };
-                });
+                    try {
+                        await fetchJSON(`${SCRIPT_URL}?action=deleteIncident&token=${userToken}&rowIndex=${index}`);
 
-                // Delete handler – local removal + refresh data
-                document.querySelectorAll('.deleteBtn').forEach(btn => {
-                    btn.onclick = async () => {
-                        if (!confirm('Delete permanently?')) return;
-                        const row = btn.closest('tr');
-                        const loc = row.getAttribute('data-loc') || row.cells[4].textContent.trim();
-                        const index = btn.dataset.index;
-                        try {
-                            await fetchJSON(`${SCRIPT_URL}?action=deleteIncident&token=${userToken}&rowIndex=${index}`);
-                            alert('Deleted! Refreshing data...');
+                        // Remove row locally
+                        row.remove();
 
-                            // Remove row locally
-                            row.remove();
+                        // Remove marker locally
+                        if (loc && loc.includes(',')) {
+                            const [latStr, lngStr] = loc.split(',');
+                            const targetLat = parseFloat(latStr.trim());
+                            const targetLng = parseFloat(lngStr.trim());
 
-                            // Remove matching marker locally
-                            if (loc && loc.includes(',')) {
-                                const [latStr, lngStr] = loc.split(',');
-                                const targetLat = parseFloat(latStr.trim());
-                                const targetLng = parseFloat(lngStr.trim());
-                                map.eachLayer(layer => {
-                                    if (layer instanceof L.CircleMarker && layer.options.incidentMarker) {
-                                        const ll = layer.getLatLng();
-                                        if (Math.abs(ll.lat - targetLat) < 0.0001 && Math.abs(ll.lng - targetLng) < 0.0001) {
-                                            map.removeLayer(layer);
-                                        }
+                            map.eachLayer(layer => {
+                                if (layer instanceof L.CircleMarker && layer.options.incidentMarker) {
+                                    const ll = layer.getLatLng();
+                                    if (Math.abs(ll.lat - targetLat) < 0.0001 && Math.abs(ll.lng - targetLng) < 0.0001) {
+                                        map.removeLayer(layer);
                                     }
-                                });
-                            }
-
-                            // Refresh full data after delete (re-populate map & table)
-                            await loadIncidents();
-                            await loadLogs();
-                        } catch (err) {
-                            alert('Failed: ' + err.message);
+                                }
+                            });
                         }
-                    };
-                });
-            } else {
-                console.error('Admin console element not found');
-            }
-        } else {
-            console.log('Not admin');
-        }
-    }
 
-    // ===================================================================
-    // GET USER ROLE
-    // ===================================================================
-    async function getUserRole() {
-        try {
-            const result = await fetchJSON(`${SCRIPT_URL}?action=validateToken&token=${userToken}`);
-            const role = result.role || 'user';
-            localStorage.setItem('userRole', role);
-            return role;
-        } catch (err) {
-            console.error('Failed to get role:', err);
-            return localStorage.getItem('userRole') || 'user';
+                        // Refresh full data (this is the key fix)
+                        await loadIncidents();
+                        await loadLogs();
+
+                    } catch (err) {
+                        alert('Failed to delete: ' + err.message);
+                    }
+                };
+            });
         }
     }
 
@@ -694,6 +653,7 @@
 </script>
 </body>
 </html>
+
 
 
 
