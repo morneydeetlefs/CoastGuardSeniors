@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-    <!-- v39 -->
+    <!-- v40 -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes">
@@ -553,24 +553,23 @@
 
             
 
-            // Resolve handler – update status in table + update pin popup locally
+            // Resolve handler – local update only
 document.querySelectorAll('.resolveBtn').forEach(btn => {
     btn.onclick = async () => {
-        if (!confirm('Mark this incident as Resolved?')) return;
+        if (!confirm('Mark as Resolved?')) return;
 
         const row = btn.closest('tr');
         const loc = row.getAttribute('data-loc') || row.cells[4].textContent.trim();
         const index = btn.dataset.index;
 
         try {
-            // Update backend
             await fetchJSON(`${SCRIPT_URL}?action=markResolved&token=${userToken}&rowIndex=${index}`);
 
-            // Update table row locally
-            row.cells[5].textContent = 'Resolved';  // Status column
-            btn.remove();                           // Remove Resolve button
+            // Update table
+            row.cells[5].textContent = 'Resolved';
+            btn.remove();
 
-            // Update matching marker popup locally
+            // Update marker popup locally
             if (loc && loc.includes(',')) {
                 const [latStr, lngStr] = loc.split(',');
                 const targetLat = parseFloat(latStr.trim());
@@ -580,7 +579,6 @@ document.querySelectorAll('.resolveBtn').forEach(btn => {
                     if (layer instanceof L.CircleMarker && layer.options.incidentMarker) {
                         const ll = layer.getLatLng();
                         if (Math.abs(ll.lat - targetLat) < 0.0001 && Math.abs(ll.lng - targetLng) < 0.0001) {
-                            // Get current popup content and replace status
                             let popupContent = layer.getPopup().getContent();
                             popupContent = popupContent.replace(
                                 /<b>Status:<\/b> [^<]+/,
@@ -592,47 +590,54 @@ document.querySelectorAll('.resolveBtn').forEach(btn => {
                 });
             }
 
-            alert('Incident marked as Resolved!');
+            alert('Resolved!');
         } catch (err) {
-            alert('Failed to resolve: ' + err.message);
+            alert('Failed: ' + err.message);
         }
     };
 });
 
-            // Delete handler – local removal only
-            document.querySelectorAll('.deleteBtn').forEach(btn => {
-                btn.onclick = async () => {
-                    if (!confirm('Delete permanently?')) return;
-                    const row = btn.closest('tr');
-                    const loc = row.getAttribute('data-loc') || row.cells[4].textContent.trim();
-                    const index = btn.dataset.index;
+            // Delete handler – purely local removal (no data reload)
+document.querySelectorAll('.deleteBtn').forEach(btn => {
+    btn.onclick = async () => {
+        if (!confirm('Delete permanently? This cannot be undone.')) return;
 
-                    try {
-                        await fetchJSON(`${SCRIPT_URL}?action=deleteIncident&token=${userToken}&rowIndex=${index}`);
+        const row = btn.closest('tr');
+        const loc = row.getAttribute('data-loc') || row.cells[4].textContent.trim();
+        const index = btn.dataset.index;
 
-                        // Remove row locally
-                        row.remove();
+        try {
+            // Delete on backend
+            await fetchJSON(`${SCRIPT_URL}?action=deleteIncident&token=${userToken}&rowIndex=${index}`);
 
-                        // Remove marker locally
-                        if (loc && loc.includes(',')) {
-                            const [latStr, lngStr] = loc.split(',');
-                            const targetLat = parseFloat(latStr.trim());
-                            const targetLng = parseFloat(lngStr.trim());
+            // Remove row from admin table
+            row.remove();
 
-                            map.eachLayer(layer => {
-                                if (layer instanceof L.CircleMarker && layer.options.incidentMarker) {
-                                    const ll = layer.getLatLng();
-                                    if (Math.abs(ll.lat - targetLat) < 0.0001 && Math.abs(ll.lng - targetLng) < 0.0001) {
-                                        map.removeLayer(layer);
-                                    }
-                                }
-                            });
+            // Remove matching marker from map
+            if (loc && loc.includes(',')) {
+                const [latStr, lngStr] = loc.split(',');
+                const targetLat = parseFloat(latStr.trim());
+                const targetLng = parseFloat(lngStr.trim());
+
+                map.eachLayer(layer => {
+                    if (layer instanceof L.CircleMarker && layer.options.incidentMarker) {
+                        const ll = layer.getLatLng();
+                        // Tolerance for floating-point match
+                        if (Math.abs(ll.lat - targetLat) < 0.0001 && Math.abs(ll.lng - targetLng) < 0.0001) {
+                            map.removeLayer(layer);
                         }
-                    } catch (err) {
-                        alert('Failed to delete: ' + err.message);
                     }
-                };
-            });
+                });
+            }
+
+            alert('Incident deleted!');
+        } catch (err) {
+            alert('Failed to delete from server: ' + err.message);
+            // Optional: reload admin view if server delete failed
+            // showDashboard();
+        }
+    };
+});
         }
     }
 
@@ -689,6 +694,7 @@ document.querySelectorAll('.resolveBtn').forEach(btn => {
 </script>
 </body>
 </html>
+
 
 
 
