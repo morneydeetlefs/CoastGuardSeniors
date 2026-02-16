@@ -1,9 +1,7 @@
 
-
 <!DOCTYPE html>
 <html lang="en">
-    
-    <!-- v41 -->
+ <!-- v42 -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes">
@@ -19,9 +17,9 @@
 
     <style>
         :root {
-            --primary: #0D47A1;      /* Deep ocean blue */
-            --accent: #4CAF50;       /* Sea green */
-            --light: #F5F0E6;        /* Sand background */
+            --primary: #0D47A1;
+            --accent: #4CAF50;
+            --light: #F5F0E6;
             --dark: #1E3A5F;
             --success: #4CAF50;
             --danger: #f44336;
@@ -149,10 +147,6 @@
             background: #f8fff8;
             box-shadow: 0 8px 25px rgba(76, 175, 80, 0.15);
         }
-
-        .admin-btn {
-            background: var(--primary);
-        }
     </style>
 </head>
 <body>
@@ -183,18 +177,31 @@
             </div>
         </div>
 
-        <h2>Log Incident/Alert</h2>
+        <h2>Log Incident / Alert</h2>
         <form id="logForm">
-            <label>Description: <input type="text" id="desc" required></label><br><br>
-            <label>Type:
+            <label>Description: 
+                <input type="text" id="desc" required placeholder="What happened?">
+            </label><br><br>
+
+            <label>Category:
                 <select id="type">
-                    <option>Red Wave</option>
-                    <option>Amber Blaze</option>
-                    <option>Other</option>
+                    <option>Suspicious Activity / Loitering</option>
+                    <option>Stray / Dangerous Animal</option>
+                    <option>Electrical Fault / Power Outage</option>
+                    <option>Water Supply Fault / Leak</option>
+                    <option>Illegal Dumping / Littering</option>
+                    <option>Traffic / Road Issue</option>
+                    <option>Red Wave – Flood / High Water</option>
+                    <option>Amber Blaze – Fire Risk / Smoke</option>
+                    <option>Other / General Concern</option>
                 </select>
             </label><br><br>
-            <label>Location (lat,lng): <input type="text" id="loc" placeholder="-29.85,31.02"></label><br><br>
-            <button type="submit">Submit Log</button>
+
+            <label>Location (lat,lng or click on map): 
+                <input type="text" id="loc" placeholder="-29.85,31.02" required>
+            </label><br><br>
+
+            <button type="submit">Submit Report</button>
         </form>
 
         <h2>Recent Logs</h2>
@@ -208,7 +215,7 @@
     <div id="adminConsole" style="display: none; margin-top: 40px; padding: 25px; border: 3px solid #4CAF50; border-radius: 16px; background: #f8fff8;">
         <h2 style="color: #4CAF50; margin-top: 0;">Admin Console</h2>
 
-        <button id="generateInviteBtn" class="admin-btn" style="padding: 14px 24px; font-size: 1.15em; margin: 15px 0;">
+        <button id="generateInviteBtn" style="padding: 14px 24px; font-size: 1.15em; margin: 15px 0; background: #0D47A1; color: white;">
             Generate New Invite Code
         </button>
         <div id="inviteResult" style="margin: 15px 0; padding: 15px; background: #e8ffe8; border: 1px solid #4CAF50; border-radius: 10px; display: none;"></div>
@@ -293,6 +300,21 @@
         }
 
         // ===================================================================
+        // GET USER ROLE
+        // ===================================================================
+        async function getUserRole() {
+            try {
+                const result = await fetchJSON(`${SCRIPT_URL}?action=validateToken&token=${userToken}`);
+                const role = result.role || 'user';
+                localStorage.setItem('userRole', role);
+                return role;
+            } catch (err) {
+                console.error('Failed to get role:', err);
+                return localStorage.getItem('userRole') || 'user';
+            }
+        }
+
+        // ===================================================================
         // MAP INITIALIZATION
         // ===================================================================
         async function initMap() {
@@ -321,7 +343,7 @@
         }
 
         // ===================================================================
-        // LOAD INCIDENTS (startup + new log)
+        // LOAD INCIDENTS – handles empty sheet safely
         // ===================================================================
         async function loadIncidents() {
             if (!userToken || !map) return;
@@ -333,22 +355,29 @@
                 logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`);
             } catch (err) {
                 console.error('Failed to load incidents:', err);
-                hideLoading();
-                return;
+                logs = []; // empty sheet is OK – just no markers
             }
 
-            // Clear old incident markers
+            // Clear existing incident markers
             map.eachLayer(layer => {
                 if (layer instanceof L.CircleMarker && layer.options.incidentMarker) {
                     map.removeLayer(layer);
                 }
             });
 
+            // Reset layer groups
             Object.values(incidentLayers).forEach(layer => {
                 layer.clearLayers();
                 map.removeLayer(layer);
             });
             incidentLayers = {};
+
+            // If no logs – skip adding markers (empty sheet is valid)
+            if (logs.length === 0) {
+                hideLoading();
+                applyTimeFilter();
+                return;
+            }
 
             logs.forEach(([date, userName, desc, type = 'Other', locStr, status]) => {
                 if (!locStr?.includes(',')) return;
@@ -357,8 +386,10 @@
                 const lng = parseFloat(lngStr.trim());
                 if (isNaN(lat) || isNaN(lng)) return;
 
-                const color = type.includes('Red Wave') ? 'red' :
-                              type.includes('Amber Blaze') ? 'orange' : 'gray';
+                const color = type.includes('Red Wave') || type.includes('Flood') ? 'red' :
+                              type.includes('Amber Blaze') || type.includes('Fire') ? 'orange' :
+                              type.includes('Electrical') ? '#9C27B0' :
+                              type.includes('Water') ? '#2196F3' : 'gray';
 
                 const marker = L.circleMarker([lat, lng], {
                     radius: 8,
@@ -383,6 +414,7 @@
                 marker.addTo(incidentLayers[type]);
             });
 
+            // Create layers control only if needed
             if (!map.layersControl) {
                 map.layersControl = L.control.layers(null, incidentLayers, {
                     position: 'topright',
@@ -506,8 +538,10 @@
                     const lat = parseFloat(latStr.trim());
                     const lng = parseFloat(lngStr.trim());
                     if (!isNaN(lat) && !isNaN(lng)) {
-                        const color = type.includes('Red Wave') ? 'red' :
-                                      type.includes('Amber Blaze') ? 'orange' : 'gray';
+                        const color = type.includes('Red Wave') || type.includes('Flood') ? 'red' :
+                                      type.includes('Amber Blaze') || type.includes('Fire') ? 'orange' :
+                                      type.includes('Electrical') ? '#9C27B0' :
+                                      type.includes('Water') ? '#2196F3' : 'gray';
 
                         const marker = L.circleMarker([lat, lng], {
                             radius: 8,
@@ -532,10 +566,12 @@
                         marker.addTo(incidentLayers[type]);
 
                         let typeExists = false;
-                        map.layersControl.eachLayer(ctrlLayer => {
-                            if (ctrlLayer.name === type) typeExists = true;
-                        });
-                        if (!typeExists) {
+                        if (map.layersControl) {
+                            map.layersControl.eachLayer(ctrlLayer => {
+                                if (ctrlLayer.name === type) typeExists = true;
+                            });
+                        }
+                        if (!typeExists && map.layersControl) {
                             map.layersControl.addOverlay(incidentLayers[type], type);
                         }
                         incidentLayers[type].addTo(map);
@@ -618,23 +654,45 @@
                     adminTbody.appendChild(tr);
                 });
 
-                // Resolve handler
+                // Resolve handler – local update
                 document.querySelectorAll('.resolveBtn').forEach(btn => {
                     btn.onclick = async () => {
                         if (!confirm('Mark as Resolved?')) return;
                         const row = btn.closest('tr');
+                        const loc = row.getAttribute('data-loc') || row.cells[4].textContent.trim();
                         const index = btn.dataset.index;
                         try {
                             await fetchJSON(`${SCRIPT_URL}?action=markResolved&token=${userToken}&rowIndex=${index}`);
                             row.cells[5].textContent = 'Resolved';
                             btn.remove();
+
+                            // Update pin popup locally
+                            if (loc && loc.includes(',')) {
+                                const [latStr, lngStr] = loc.split(',');
+                                const targetLat = parseFloat(latStr.trim());
+                                const targetLng = parseFloat(lngStr.trim());
+
+                                map.eachLayer(layer => {
+                                    if (layer instanceof L.CircleMarker && layer.options.incidentMarker) {
+                                        const ll = layer.getLatLng();
+                                        if (Math.abs(ll.lat - targetLat) < 0.0001 && Math.abs(ll.lng - targetLng) < 0.0001) {
+                                            let popupContent = layer.getPopup().getContent();
+                                            popupContent = popupContent.replace(
+                                                /<b>Status:<\/b> [^<]+/,
+                                                '<b>Status:</b> Resolved'
+                                            );
+                                            layer.setPopupContent(popupContent);
+                                        }
+                                    }
+                                });
+                            }
                         } catch (err) {
                             alert('Failed: ' + err.message);
                         }
                     };
                 });
 
-                // Delete handler – local removal
+                // Delete handler – local removal only
                 document.querySelectorAll('.deleteBtn').forEach(btn => {
                     btn.onclick = async () => {
                         if (!confirm('Delete permanently?')) return;
@@ -666,21 +724,6 @@
                         }
                     };
                 });
-            }
-        }
-
-        // ===================================================================
-        // GET USER ROLE
-        // ===================================================================
-        async function getUserRole() {
-            try {
-                const result = await fetchJSON(`${SCRIPT_URL}?action=validateToken&token=${userToken}`);
-                const role = result.role || 'user';
-                localStorage.setItem('userRole', role);
-                return role;
-            } catch (err) {
-                console.error('Failed to get role:', err);
-                return localStorage.getItem('userRole') || 'user';
             }
         }
 
