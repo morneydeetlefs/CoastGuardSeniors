@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-    <!-- v25 -->
+    <!-- v26 -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes">
@@ -238,79 +238,94 @@
     // LOAD INCIDENTS ONCE (page load only)
     // ===================================================================
     async function loadIncidents() {
-        if (!userToken || !map) return;
+    if (!userToken || !map) return;
 
-        showLoading('Loading incidents...');
+    showLoading('Loading incidents...');
 
-        let logs = [];
-        try {
-            logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`);
-        } catch (err) {
-            console.error('Failed to load incidents:', err);
-            hideLoading();
-            return;
-        }
+    let logs = [];
+    try {
+        logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`);
+    } catch (err) {
+        console.error('Failed to load incidents:', err);
+        hideLoading();
+        return;
+    }
 
-        // Clear existing incident markers
-        map.eachLayer(layer => {
-            if (layer instanceof L.CircleMarker && layer.options.incidentMarker) {
-                map.removeLayer(layer);
-            }
-        });
-
-        // Reset layer groups
-        Object.values(incidentLayers).forEach(layer => {
-            layer.clearLayers();
+    // Clear existing incident markers
+    map.eachLayer(layer => {
+        if (layer instanceof L.CircleMarker && layer.options.incidentMarker) {
             map.removeLayer(layer);
+        }
+    });
+
+    // Reset layer groups
+    Object.values(incidentLayers).forEach(layer => {
+        layer.clearLayers();
+        map.removeLayer(layer);
+    });
+    incidentLayers = {};
+
+    logs.forEach(([date, userName, desc, type = 'Other', locStr, status]) => {
+        if (!locStr?.includes(',')) return;
+        const [latStr, lngStr] = locStr.split(',');
+        const lat = parseFloat(latStr.trim());
+        const lng = parseFloat(lngStr.trim());
+        if (isNaN(lat) || isNaN(lng)) return;
+
+        const color = type.includes('Red Wave') ? 'red' :
+                      type.includes('Amber Blaze') ? 'orange' : 'gray';
+
+        const marker = L.circleMarker([lat, lng], {
+            radius: 8,
+            fillColor: color,
+            color: '#000',
+            weight: 1,
+            fillOpacity: 0.8,
+            incidentMarker: true
         });
-        incidentLayers = {};
 
-        logs.forEach(([date, userName, desc, type = 'Other', locStr, status]) => {
-            if (!locStr?.includes(',')) return;
-            const [latStr, lngStr] = locStr.split(',');
-            const lat = parseFloat(latStr.trim());
-            const lng = parseFloat(lngStr.trim());
-            if (isNaN(lat) || isNaN(lng)) return;
+        const popup = `
+            <b style="font-size:1.2em">${type}</b><br>
+            <small>${new Date(date).toLocaleString('en-ZA')}</small><br><br>
+            <b>By:</b> ${userName}<br>
+            <b>Desc:</b> ${desc}<br>
+            <b>Loc:</b> ${lat.toFixed(4)}, ${lng.toFixed(4)}<br>
+            <b>Status:</b> ${status}
+        `;
+        marker.bindPopup(popup);
 
-            const color = type.includes('Red Wave') ? 'red' :
-                          type.includes('Amber Blaze') ? 'orange' : 'gray';
+        if (!incidentLayers[type]) incidentLayers[type] = L.layerGroup();
+        marker.addTo(incidentLayers[type]);
+    });
 
-            const marker = L.circleMarker([lat, lng], {
-                radius: 8,
-                fillColor: color,
-                color: '#000',
-                weight: 1,
-                fillOpacity: 0.8,
-                incidentMarker: true
+    // Create or update layers control
+    if (!map.layersControl) {
+        map.layersControl = L.control.layers(null, incidentLayers, {
+            position: 'topright',
+            collapsed: false
+        }).addTo(map);
+
+        Object.values(incidentLayers).forEach(layer => layer.addTo(map));
+    } else {
+        // Add any new overlay types that don't already exist
+        Object.entries(incidentLayers).forEach(([type, layer]) => {
+            let alreadyExists = false;
+            map.layersControl.eachLayer(function (ctrlLayer) {
+                if (ctrlLayer.name === type) {
+                    alreadyExists = true;
+                }
             });
 
-            const popup = `
-                <b style="font-size:1.2em">${type}</b><br>
-                <small>${new Date(date).toLocaleString('en-ZA')}</small><br><br>
-                <b>By:</b> ${userName}<br>
-                <b>Desc:</b> ${desc}<br>
-                <b>Loc:</b> ${lat.toFixed(4)}, ${lng.toFixed(4)}<br>
-                <b>Status:</b> ${status}
-            `;
-            marker.bindPopup(popup);
-
-            if (!incidentLayers[type]) incidentLayers[type] = L.layerGroup();
-            marker.addTo(incidentLayers[type]);
+            if (!alreadyExists) {
+                map.layersControl.addOverlay(layer, type);
+                layer.addTo(map);
+            }
         });
-
-        // Create layers control
-        if (!map.layersControl) {
-            map.layersControl = L.control.layers(null, incidentLayers, {
-                position: 'topright',
-                collapsed: false
-            }).addTo(map);
-
-            Object.values(incidentLayers).forEach(layer => layer.addTo(map));
-        }
-
-        hideLoading();
-        applyTimeFilter();
     }
+
+    hideLoading();
+    applyTimeFilter();
+}
 
     // ===================================================================
     // TIME FILTER – LOCAL FILTERING
@@ -522,5 +537,6 @@
 </script>
 </body>
 </html>
+
 
 
