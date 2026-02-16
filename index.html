@@ -209,6 +209,21 @@
     }
 
     // ===================================================================
+    // GET USER ROLE (needed for admin console)
+    // ===================================================================
+    async function getUserRole() {
+        try {
+            const result = await fetchJSON(`${SCRIPT_URL}?action=validateToken&token=${userToken}`);
+            const role = result.role || 'user';
+            localStorage.setItem('userRole', role);
+            return role;
+        } catch (err) {
+            console.error('Failed to get role:', err);
+            return localStorage.getItem('userRole') || 'user';
+        }
+    }
+
+    // ===================================================================
     // MAP INITIALIZATION
     // ===================================================================
     async function initMap() {
@@ -226,6 +241,13 @@
             maxZoom: 19
         }).addTo(map);
 
+        // Clear any leftover incident markers on map creation
+        map.eachLayer(layer => {
+            if (layer instanceof L.CircleMarker && layer.options.incidentMarker) {
+                map.removeLayer(layer);
+            }
+        });
+
         zones.forEach(([name, latStr, lngStr]) => {
             const lat = parseFloat(latStr), lng = parseFloat(lngStr);
             if (!isNaN(lat) && !isNaN(lng)) {
@@ -235,22 +257,9 @@
             }
         });
     }
+
     // ===================================================================
-    // GET USER ROLE FROM BACKEND OR CACHE
-    // ===================================================================
-    async function getUserRole() {
-        try {
-            const result = await fetchJSON(`${SCRIPT_URL}?action=validateToken&token=${userToken}`);
-            const role = result.role || 'user';
-            localStorage.setItem('userRole', role);
-            return role;
-        } catch (err) {
-            console.error('Failed to get role:', err);
-            return localStorage.getItem('userRole') || 'user';
-        }
-    }
-    // ===================================================================
-    // LOAD INCIDENTS (called on startup and after new log)
+    // LOAD INCIDENTS (startup + after new log only)
     // ===================================================================
     async function loadIncidents() {
         if (!userToken || !map) return;
@@ -485,20 +494,6 @@
             };
         });
 
-        // Refresh button – full reload of data
-        document.getElementById('refreshBtn').onclick = async () => {
-            showLoading('Refreshing data from server...');
-            try {
-                await loadIncidents();
-                await loadLogs();
-                alert('Data refreshed successfully!');
-            } catch (err) {
-                alert('Refresh failed: ' + err.message);
-            } finally {
-                hideLoading();
-            }
-        };
-
         // ──────────────────────────────────────────────
         // ADMIN CONSOLE
         // ──────────────────────────────────────────────
@@ -556,14 +551,15 @@
                 adminTbody.appendChild(tr);
             });
 
-            // Resolve handler
+            // Resolve handler – local update only
             document.querySelectorAll('.resolveBtn').forEach(btn => {
                 btn.onclick = async () => {
                     if (!confirm('Mark as Resolved?')) return;
+                    const row = btn.closest('tr');
                     const index = btn.dataset.index;
                     try {
                         await fetchJSON(`${SCRIPT_URL}?action=markResolved&token=${userToken}&rowIndex=${index}`);
-                        btn.closest('tr').cells[5].textContent = 'Resolved';
+                        row.cells[5].textContent = 'Resolved';
                         btn.remove();
                     } catch (err) {
                         alert('Failed: ' + err.message);
@@ -571,7 +567,7 @@
                 };
             });
 
-            // Delete handler – remove locally + refresh data
+            // Delete handler – local removal only
             document.querySelectorAll('.deleteBtn').forEach(btn => {
                 btn.onclick = async () => {
                     if (!confirm('Delete permanently?')) return;
@@ -600,11 +596,6 @@
                                 }
                             });
                         }
-
-                        // Refresh full data (this is the key fix)
-                        await loadIncidents();
-                        await loadLogs();
-
                     } catch (err) {
                         alert('Failed to delete: ' + err.message);
                     }
@@ -666,6 +657,7 @@
 </script>
 </body>
 </html>
+
 
 
 
