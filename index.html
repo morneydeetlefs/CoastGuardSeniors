@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-    <!-- v26 -->
+    <!-- v27 -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes">
@@ -20,7 +20,7 @@
         .section { margin-bottom: 20px; }
         button, input, select { min-height: 48px; min-width: 48px; padding: 12px; font-size: 1.1em; border-radius: 6px; border: 1px solid #ccc; }
         button { background: #4CAF50; color: white; cursor: pointer; }
-        table { width: 100%; border-collapse: collapse; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
         th { background: #f2f2f2; }
         .time-btn { padding: 8px 12px; background: #2196F3; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.95em; margin-right: 5px; }
@@ -152,391 +152,463 @@
     </div>
 
     <script>
-    // ===================================================================
-    // HARD CODE YOUR INFO HERE
-    // ===================================================================
-    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbydmLo3aJuX7lexfkiDHUWi7fUt8hF1tCNBcR26-lss-FxMrOQkes7pboRFumN-9YnT/exec';
-    const ELYSIUM_CENTER = [-30.46667, 30.63333];
+        // ===================================================================
+        // HARD CODE YOUR INFO HERE
+        // ===================================================================
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbydmLo3aJuX7lexfkiDHUWi7fUt8hF1tCNBcR26-lss-FxMrOQkes7pboRFumN-9YnT/exec';
+        const ELYSIUM_CENTER = [-30.46667, 30.63333];
 
-    // ===================================================================
-    // APP STATE
-    // ===================================================================
-    let userToken = localStorage.getItem('userToken') || new URLSearchParams(location.search).get('token');
-    const inviteToken = new URLSearchParams(location.search).get('invite');
-    let map;
-    let incidentLayers = {};
-    let currentDaysBack = 30;
-    let locationMarker = null;
+        // ===================================================================
+        // APP STATE
+        // ===================================================================
+        let userToken = localStorage.getItem('userToken') || new URLSearchParams(location.search).get('token');
+        const inviteToken = new URLSearchParams(location.search).get('invite');
+        let map;
+        let incidentLayers = {};
+        let currentDaysBack = 30;
+        let locationMarker = null;
 
-    // ===================================================================
-    // HELPERS
-    // ===================================================================
-    const fetchJSON = async (url, options = {}) => {
-        const res = await fetch(url, options);
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
-        return data;
-    };
-
-    const getCutoffDate = days => {
-        const d = new Date();
-        d.setDate(d.getDate() - days);
-        return d;
-    };
-
-    function showLoading(message = 'Loading...') {
-        document.getElementById('loadingMessage').textContent = message;
-        document.getElementById('loadingOverlay').style.display = 'flex';
-
-        const bar = document.getElementById('progressBar');
-        bar.style.width = '0%';
-        let progress = 0;
-        const interval = setInterval(() => {
-            progress += 10;
-            bar.style.width = `${progress}%`;
-            if (progress >= 90) clearInterval(interval);
-        }, 300);
-    }
-
-    function hideLoading() {
-        const bar = document.getElementById('progressBar');
-        bar.style.width = '100%';
-        setTimeout(() => {
-            document.getElementById('loadingOverlay').style.display = 'none';
-        }, 400);
-    }
-
-    // ===================================================================
-    // MAP INITIALIZATION
-    // ===================================================================
-    async function initMap() {
-        const zones = await fetchJSON(`${SCRIPT_URL}?action=getZones&token=${userToken}`).catch(() => []);
-
-        map = L.map('map', {
-            renderer: L.canvas(),
-            zoomSnap: 0.5,
-            zoomDelta: 0.5,
-            tapTolerance: 15
-        }).setView(ELYSIUM_CENTER, 12);
-
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-            maxZoom: 19
-        }).addTo(map);
-
-        zones.forEach(([name, latStr, lngStr]) => {
-            const lat = parseFloat(latStr), lng = parseFloat(lngStr);
-            if (!isNaN(lat) && !isNaN(lng)) {
-                L.marker([lat, lng])
-                    .bindPopup(`<b>${name}</b><br>Zone`)
-                    .addTo(map);
-            }
-        });
-    }
-
-    // ===================================================================
-    // LOAD INCIDENTS ONCE (page load only)
-    // ===================================================================
-    async function loadIncidents() {
-    if (!userToken || !map) return;
-
-    showLoading('Loading incidents...');
-
-    let logs = [];
-    try {
-        logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`);
-    } catch (err) {
-        console.error('Failed to load incidents:', err);
-        hideLoading();
-        return;
-    }
-
-    // Clear existing incident markers
-    map.eachLayer(layer => {
-        if (layer instanceof L.CircleMarker && layer.options.incidentMarker) {
-            map.removeLayer(layer);
-        }
-    });
-
-    // Reset layer groups
-    Object.values(incidentLayers).forEach(layer => {
-        layer.clearLayers();
-        map.removeLayer(layer);
-    });
-    incidentLayers = {};
-
-    logs.forEach(([date, userName, desc, type = 'Other', locStr, status]) => {
-        if (!locStr?.includes(',')) return;
-        const [latStr, lngStr] = locStr.split(',');
-        const lat = parseFloat(latStr.trim());
-        const lng = parseFloat(lngStr.trim());
-        if (isNaN(lat) || isNaN(lng)) return;
-
-        const color = type.includes('Red Wave') ? 'red' :
-                      type.includes('Amber Blaze') ? 'orange' : 'gray';
-
-        const marker = L.circleMarker([lat, lng], {
-            radius: 8,
-            fillColor: color,
-            color: '#000',
-            weight: 1,
-            fillOpacity: 0.8,
-            incidentMarker: true
-        });
-
-        const popup = `
-            <b style="font-size:1.2em">${type}</b><br>
-            <small>${new Date(date).toLocaleString('en-ZA')}</small><br><br>
-            <b>By:</b> ${userName}<br>
-            <b>Desc:</b> ${desc}<br>
-            <b>Loc:</b> ${lat.toFixed(4)}, ${lng.toFixed(4)}<br>
-            <b>Status:</b> ${status}
-        `;
-        marker.bindPopup(popup);
-
-        if (!incidentLayers[type]) incidentLayers[type] = L.layerGroup();
-        marker.addTo(incidentLayers[type]);
-    });
-
-    // Create or update layers control
-    if (!map.layersControl) {
-        map.layersControl = L.control.layers(null, incidentLayers, {
-            position: 'topright',
-            collapsed: false
-        }).addTo(map);
-
-        Object.values(incidentLayers).forEach(layer => layer.addTo(map));
-    } else {
-        // Add any new overlay types that don't already exist
-        Object.entries(incidentLayers).forEach(([type, layer]) => {
-            let alreadyExists = false;
-            map.layersControl.eachLayer(function (ctrlLayer) {
-                if (ctrlLayer.name === type) {
-                    alreadyExists = true;
-                }
-            });
-
-            if (!alreadyExists) {
-                map.layersControl.addOverlay(layer, type);
-                layer.addTo(map);
-            }
-        });
-    }
-
-    hideLoading();
-    applyTimeFilter();
-}
-
-    // ===================================================================
-    // TIME FILTER – LOCAL FILTERING
-    // ===================================================================
-    function applyTimeFilter() {
-        const cutoff = getCutoffDate(currentDaysBack);
-
-        Object.values(incidentLayers).forEach(layer => {
-            layer.eachLayer(marker => {
-                const content = marker.getPopup()?.getContent() || '';
-                const match = content.match(/<small>([^<]+)<\/small>/);
-                if (!match) return;
-
-                const logDate = new Date(match[1].trim());
-                if (isNaN(logDate.getTime())) return;
-
-                if (currentDaysBack === 0 || logDate >= cutoff) {
-                    if (!map.hasLayer(marker)) marker.addTo(layer);
-                } else {
-                    if (map.hasLayer(marker)) map.removeLayer(marker);
-                }
-            });
-        });
-    }
-
-    // ===================================================================
-    // LOAD LOGS TABLE (all logs)
-    // ===================================================================
-    async function loadLogs() {
-        const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
-        const tbody = document.getElementById('logsTable').querySelector('tbody');
-        tbody.innerHTML = '';
-        logs.forEach(log => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${log[0]}</td><td>${log[1]}</td><td>${log[2]}</td><td>${log[3]}</td><td>${log[4]}</td><td>${log[5]}</td>`;
-            tbody.appendChild(tr);
-        });
-    }
-
-    // ===================================================================
-    // SHOW DASHBOARD
-    // ===================================================================
-    async function showDashboard() {
-        document.getElementById('auth-section').style.display = 'none';
-        document.getElementById('dashboard').style.display = 'block';
-
-        showLoading('Loading map and zones...');
-
-        await initMap();
-        await loadIncidents();
-        loadLogs();
-
-        hideLoading();
-
-        // Map click to select location
-        map.on('click', function(e) {
-            const lat = e.latlng.lat.toFixed(6);
-            const lng = e.latlng.lng.toFixed(6);
-            document.getElementById('loc').value = `${lat},${lng}`;
-
-            if (locationMarker) map.removeLayer(locationMarker);
-
-            locationMarker = L.circleMarker([lat, lng], {
-                radius: 10,
-                fillColor: '#ff0000',
-                color: '#ffffff',
-                weight: 2,
-                opacity: 1,
-                fillOpacity: 0.85
-            }).addTo(map)
-              .bindPopup(`Incident location<br><b>${lat},${lng}</b>`)
-              .openPopup();
-        });
-
-        // Log form – add locally to table & map (no full refresh)
-        document.getElementById('logForm').onsubmit = async e => {
-            e.preventDefault();
-            const desc = document.getElementById('desc').value;
-            const type = document.getElementById('type').value;
-            const loc = document.getElementById('loc').value;
-
-            if (locationMarker) {
-                map.removeLayer(locationMarker);
-                locationMarker = null;
-            }
-
-            showLoading('Saving incident...');
-
-            try {
-                await fetchJSON(SCRIPT_URL, {
-                    method: 'POST',
-                    body: JSON.stringify({ action: 'logIncident', token: userToken, description: desc, type, location: loc })
-                });
-
-                // Optimistic UI: add to table & map locally
-                const now = new Date().toLocaleString('en-ZA');
-                const tbody = document.getElementById('logsTable').querySelector('tbody');
-                const tr = document.createElement('tr');
-                tr.innerHTML = `<td>${now}</td><td>Me</td><td>${desc}</td><td>${type}</td><td>${loc}</td><td>New</td>`;
-                tbody.insertBefore(tr, tbody.firstChild); // add at top
-
-                if (loc.includes(',')) {
-                    const [latStr, lngStr] = loc.split(',');
-                    const lat = parseFloat(latStr.trim());
-                    const lng = parseFloat(lngStr.trim());
-                    if (!isNaN(lat) && !isNaN(lng)) {
-                        const color = type.includes('Red Wave') ? 'red' :
-                                      type.includes('Amber Blaze') ? 'orange' : 'gray';
-
-                        const marker = L.circleMarker([lat, lng], {
-                            radius: 8,
-                            fillColor: color,
-                            color: '#000',
-                            weight: 1,
-                            fillOpacity: 0.8,
-                            incidentMarker: true
-                        });
-
-                        const popup = `
-                            <b style="font-size:1.2em">${type}</b><br>
-                            <small>${now}</small><br><br>
-                            <b>By:</b> Me<br>
-                            <b>Desc:</b> ${desc}<br>
-                            <b>Loc:</b> ${lat.toFixed(4)}, ${lng.toFixed(4)}<br>
-                            <b>Status:</b> New
-                        `;
-                        marker.bindPopup(popup);
-
-                        if (!incidentLayers[type]) incidentLayers[type] = L.layerGroup();
-                        marker.addTo(incidentLayers[type]);
-
-                        // Update layers control if new type
-                        if (!map.layersControl.getOverlay(type)) {
-                            map.layersControl.addOverlay(incidentLayers[type], type);
-                        }
-                        incidentLayers[type].addTo(map);
-                    }
-                }
-
-                alert('Incident logged!');
-            } catch (err) {
-                alert('Error: ' + err.message);
-            } finally {
-                hideLoading();
-            }
+        // ===================================================================
+        // HELPERS
+        // ===================================================================
+        const fetchJSON = async (url, options = {}) => {
+            const res = await fetch(url, options);
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            return data;
         };
 
-        // Time filter buttons – local only
-        document.querySelectorAll('.time-btn').forEach(btn => {
-            btn.onclick = () => {
-                document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                currentDaysBack = +btn.dataset.days;
-                applyTimeFilter();
-            };
-        });
-    }
+        const getCutoffDate = days => {
+            const d = new Date();
+            d.setDate(d.getDate() - days);
+            return d;
+        };
 
-    // ===================================================================
-    // INIT
-    // ===================================================================
-    async function init() {
-        if (inviteToken) {
+        function showLoading(message = 'Loading...') {
+            document.getElementById('loadingMessage').textContent = message;
+            document.getElementById('loadingOverlay').style.display = 'flex';
+
+            const bar = document.getElementById('progressBar');
+            bar.style.width = '0%';
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += 10;
+                bar.style.width = `${progress}%`;
+                if (progress >= 90) clearInterval(interval);
+            }, 300);
+        }
+
+        function hideLoading() {
+            const bar = document.getElementById('progressBar');
+            bar.style.width = '100%';
+            setTimeout(() => {
+                document.getElementById('loadingOverlay').style.display = 'none';
+            }, 400);
+        }
+
+        // ===================================================================
+        // MAP INITIALIZATION
+        // ===================================================================
+        async function initMap() {
+            const zones = await fetchJSON(`${SCRIPT_URL}?action=getZones&token=${userToken}`).catch(() => []);
+
+            map = L.map('map', {
+                renderer: L.canvas(),
+                zoomSnap: 0.5,
+                zoomDelta: 0.5,
+                tapTolerance: 15
+            }).setView(ELYSIUM_CENTER, 12);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+                maxZoom: 19
+            }).addTo(map);
+
+            zones.forEach(([name, latStr, lngStr]) => {
+                const lat = parseFloat(latStr), lng = parseFloat(lngStr);
+                if (!isNaN(lat) && !isNaN(lng)) {
+                    L.marker([lat, lng])
+                        .bindPopup(`<b>${name}</b><br>Zone`)
+                        .addTo(map);
+                }
+            });
+        }
+
+        // ===================================================================
+        // LOAD INCIDENTS ONCE (page load only)
+        // ===================================================================
+        async function loadIncidents() {
+            if (!userToken || !map) return;
+
+            showLoading('Loading incidents...');
+
+            let logs = [];
             try {
-                const { valid } = await fetchJSON(`${SCRIPT_URL}?action=validateInvite&inviteToken=${inviteToken}`);
-                if (!valid) return alert('Invalid or used invite.');
-
-                document.getElementById('auth-section').innerHTML = `
-                    <h2>Join CoastGuard Seniors</h2>
-                    <form id="signupForm">
-                        <label>Name: <input id="name" placeholder="Your name" required></label><br><br>
-                        <label>Role (optional): <input id="role" placeholder="e.g. River Watch"></label><br><br>
-                        <button type="submit">Join</button>
-                    </form>`;
-
-                document.getElementById('signupForm').onsubmit = async e => {
-                    e.preventDefault();
-                    const name = document.getElementById('name').value;
-                    const role = document.getElementById('role').value;
-                    try {
-                        const { userToken: newToken } = await fetchJSON(SCRIPT_URL, {
-                            method: 'POST',
-                            body: JSON.stringify({ action: 'register', inviteToken, name, role })
-                        });
-                        localStorage.setItem('userToken', newToken);
-                        userToken = newToken;
-                        showDashboard();
-                        alert('Welcome! You are now signed up.');
-                    } catch (err) {
-                        alert('Signup failed: ' + err.message);
-                    }
-                };
+                logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`);
             } catch (err) {
-                alert('Error checking invite: ' + err.message);
+                console.error('Failed to load incidents:', err);
+                hideLoading();
+                return;
             }
-        } else if (userToken) {
-            localStorage.setItem('userToken', userToken);
-            showDashboard();
-        } else {
-            document.getElementById('auth-section').innerHTML = '<p>Use your invite link or contact admin.</p>';
+
+            // Clear existing incident markers
+            map.eachLayer(layer => {
+                if (layer instanceof L.CircleMarker && layer.options.incidentMarker) {
+                    map.removeLayer(layer);
+                }
+            });
+
+            // Reset layer groups
+            Object.values(incidentLayers).forEach(layer => {
+                layer.clearLayers();
+                map.removeLayer(layer);
+            });
+            incidentLayers = {};
+
+            logs.forEach(([date, userName, desc, type = 'Other', locStr, status]) => {
+                if (!locStr?.includes(',')) return;
+                const [latStr, lngStr] = locStr.split(',');
+                const lat = parseFloat(latStr.trim());
+                const lng = parseFloat(lngStr.trim());
+                if (isNaN(lat) || isNaN(lng)) return;
+
+                const color = type.includes('Red Wave') ? 'red' :
+                              type.includes('Amber Blaze') ? 'orange' : 'gray';
+
+                const marker = L.circleMarker([lat, lng], {
+                    radius: 8,
+                    fillColor: color,
+                    color: '#000',
+                    weight: 1,
+                    fillOpacity: 0.8,
+                    incidentMarker: true
+                });
+
+                const popup = `
+                    <b style="font-size:1.2em">${type}</b><br>
+                    <small>${new Date(date).toLocaleString('en-ZA')}</small><br><br>
+                    <b>By:</b> ${userName}<br>
+                    <b>Desc:</b> ${desc}<br>
+                    <b>Loc:</b> ${lat.toFixed(4)}, ${lng.toFixed(4)}<br>
+                    <b>Status:</b> ${status}
+                `;
+                marker.bindPopup(popup);
+
+                if (!incidentLayers[type]) incidentLayers[type] = L.layerGroup();
+                marker.addTo(incidentLayers[type]);
+            });
+
+            // Create layers control once
+            if (!map.layersControl) {
+                map.layersControl = L.control.layers(null, incidentLayers, {
+                    position: 'topright',
+                    collapsed: false
+                }).addTo(map);
+
+                Object.values(incidentLayers).forEach(layer => layer.addTo(map));
+            }
+
+            hideLoading();
+            applyTimeFilter();
         }
 
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js').catch(console.error);
-        }
-    }
+        // ===================================================================
+        // TIME FILTER – LOCAL FILTERING
+        // ===================================================================
+        function applyTimeFilter() {
+            const cutoff = getCutoffDate(currentDaysBack);
 
-    init();
-</script>
+            Object.values(incidentLayers).forEach(layer => {
+                layer.eachLayer(marker => {
+                    const content = marker.getPopup()?.getContent() || '';
+                    const match = content.match(/<small>([^<]+)<\/small>/);
+                    if (!match) return;
+
+                    const logDate = new Date(match[1].trim());
+                    if (isNaN(logDate.getTime())) return;
+
+                    if (currentDaysBack === 0 || logDate >= cutoff) {
+                        if (!map.hasLayer(marker)) marker.addTo(layer);
+                    } else {
+                        if (map.hasLayer(marker)) map.removeLayer(marker);
+                    }
+                });
+            });
+        }
+
+        // ===================================================================
+        // LOAD LOGS TABLE (all logs)
+        // ===================================================================
+        async function loadLogs() {
+            const logs = await fetchJSON(`${SCRIPT_URL}?action=getLogs&token=${userToken}`).catch(() => []);
+            const tbody = document.getElementById('logsTable').querySelector('tbody');
+            tbody.innerHTML = '';
+            logs.forEach(log => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${log[0]}</td><td>${log[1]}</td><td>${log[2]}</td><td>${log[3]}</td><td>${log[4]}</td><td>${log[5]}</td>`;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // ===================================================================
+        // GET USER ROLE FROM BACKEND
+        // ===================================================================
+        async function getUserRole() {
+            try {
+                const result = await fetchJSON(`${SCRIPT_URL}?action=validateToken&token=${userToken}`);
+                const role = result.role || 'user';
+                localStorage.setItem('userRole', role);
+                return role;
+            } catch (err) {
+                console.error('Failed to get role:', err);
+                return localStorage.getItem('userRole') || 'user';
+            }
+        }
+
+        // ===================================================================
+        // SHOW DASHBOARD
+        // ===================================================================
+        async function showDashboard() {
+            document.getElementById('auth-section').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'block';
+
+            showLoading('Loading map and zones...');
+
+            await initMap();
+            await loadIncidents();
+            loadLogs();
+
+            hideLoading();
+
+            // Map click to select location
+            map.on('click', function(e) {
+                const lat = e.latlng.lat.toFixed(6);
+                const lng = e.latlng.lng.toFixed(6);
+                document.getElementById('loc').value = `${lat},${lng}`;
+
+                if (locationMarker) map.removeLayer(locationMarker);
+
+                locationMarker = L.circleMarker([lat, lng], {
+                    radius: 10,
+                    fillColor: '#ff0000',
+                    color: '#ffffff',
+                    weight: 2,
+                    opacity: 1,
+                    fillOpacity: 0.85
+                }).addTo(map)
+                  .bindPopup(`Incident location<br><b>${lat},${lng}</b>`)
+                  .openPopup();
+            });
+
+            // Log form – add locally (optimistic)
+            document.getElementById('logForm').onsubmit = async e => {
+                e.preventDefault();
+                const desc = document.getElementById('desc').value;
+                const type = document.getElementById('type').value;
+                const loc = document.getElementById('loc').value;
+
+                if (locationMarker) {
+                    map.removeLayer(locationMarker);
+                    locationMarker = null;
+                }
+
+                showLoading('Saving incident...');
+
+                try {
+                    await fetchJSON(SCRIPT_URL, {
+                        method: 'POST',
+                        body: JSON.stringify({ action: 'logIncident', token: userToken, description: desc, type, location: loc })
+                    });
+
+                    // Add to table locally
+                    const now = new Date().toLocaleString('en-ZA');
+                    const tbody = document.getElementById('logsTable').querySelector('tbody');
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td>${now}</td><td>Me</td><td>${desc}</td><td>${type}</td><td>${loc}</td><td>New</td>`;
+                    tbody.insertBefore(tr, tbody.firstChild);
+
+                    // Add to map locally
+                    if (loc.includes(',')) {
+                        const [latStr, lngStr] = loc.split(',');
+                        const lat = parseFloat(latStr.trim());
+                        const lng = parseFloat(lngStr.trim());
+                        if (!isNaN(lat) && !isNaN(lng)) {
+                            const color = type.includes('Red Wave') ? 'red' :
+                                          type.includes('Amber Blaze') ? 'orange' : 'gray';
+
+                            const marker = L.circleMarker([lat, lng], {
+                                radius: 8,
+                                fillColor: color,
+                                color: '#000',
+                                weight: 1,
+                                fillOpacity: 0.8,
+                                incidentMarker: true
+                            });
+
+                            const popup = `
+                                <b style="font-size:1.2em">${type}</b><br>
+                                <small>${now}</small><br><br>
+                                <b>By:</b> Me<br>
+                                <b>Desc:</b> ${desc}<br>
+                                <b>Loc:</b> ${lat.toFixed(4)}, ${lng.toFixed(4)}<br>
+                                <b>Status:</b> New
+                            `;
+                            marker.bindPopup(popup);
+
+                            if (!incidentLayers[type]) incidentLayers[type] = L.layerGroup();
+                            marker.addTo(incidentLayers[type]);
+
+                            // Add to control if new type
+                            let exists = false;
+                            map.layersControl.eachLayer(ctrlLayer => {
+                                if (ctrlLayer.name === type) exists = true;
+                            });
+                            if (!exists) {
+                                map.layersControl.addOverlay(incidentLayers[type], type);
+                            }
+                            incidentLayers[type].addTo(map);
+                        }
+                    }
+
+                    alert('Incident logged!');
+                } catch (err) {
+                    alert('Error: ' + err.message);
+                } finally {
+                    hideLoading();
+                }
+            };
+
+            // Time filter buttons – local filtering only
+            document.querySelectorAll('.time-btn').forEach(btn => {
+                btn.onclick = () => {
+                    document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    currentDaysBack = +btn.dataset.days;
+                    applyTimeFilter();
+                };
+            });
+
+            // ──────────────────────────────────────────────
+            // ADMIN CONSOLE – SHOW & LOAD IF ADMIN
+            // ──────────────────────────────────────────────
+            const role = await getUserRole();
+            console.log('Current role:', role); // debug
+
+            if (role.toLowerCase() === 'admin' || role === 'Coordinator') {
+                const adminConsole = document.getElementById('adminConsole');
+                if (adminConsole) {
+                    adminConsole.style.display = 'block';
+                    console.log('Admin console shown');
+
+                    // Load users
+                    const users = await fetchJSON(`${SCRIPT_URL}?action=getUsers&token=${userToken}`).catch(() => []);
+                    const usersTbody = document.getElementById('usersTable').querySelector('tbody');
+                    usersTbody.innerHTML = '';
+                    users.forEach(user => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `<td>${user[0] || '-'}</td><td>${user[1] || '-'}</td><td>${user[2] || '-'}</td>`;
+                        usersTbody.appendChild(tr);
+                    });
+
+                    // Generate invite
+                    document.getElementById('generateInviteBtn').onclick = async () => {
+                        try {
+                            const result = await fetchJSON(`${SCRIPT_URL}?action=generateInvite&token=${userToken}`);
+                            const inviteCode = result.inviteToken || result.invite;
+                            const link = `${window.location.origin}${window.location.pathname}?invite=${inviteCode}`;
+                            document.getElementById('inviteResult').innerHTML = `
+                                New invite link created:<br>
+                                <strong>${link}</strong><br>
+                                <small>Share this privately with new members.</small>
+                            `;
+                            document.getElementById('inviteResult').style.display = 'block';
+                        } catch (err) {
+                            alert('Failed to generate invite: ' + err.message);
+                        }
+                    };
+
+                    // Load full logs for admin
+                    const adminLogs = await fetchJSON(`${SCRIPT_URL}?action=getFullLogs&token=${userToken}`).catch(() => []);
+                    const adminTbody = document.getElementById('adminLogsTable').querySelector('tbody');
+                    adminTbody.innerHTML = '';
+                    adminLogs.forEach(log => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `<td>${log[0]}</td><td>${log[1]}</td><td>${log[2]}</td><td>${log[3]}</td><td>${log[4]}</td><td>${log[5]}</td>`;
+                        adminTbody.appendChild(tr);
+                    });
+                } else {
+                    console.error('Admin console element not found in HTML');
+                }
+            } else {
+                console.log('Not admin - console hidden');
+            }
+        }
+
+        // ===================================================================
+        // GET USER ROLE FROM BACKEND
+        // ===================================================================
+        async function getUserRole() {
+            try {
+                const result = await fetchJSON(`${SCRIPT_URL}?action=validateToken&token=${userToken}`);
+                const role = result.role || 'user';
+                localStorage.setItem('userRole', role);
+                return role;
+            } catch (err) {
+                console.error('Failed to get role:', err);
+                return localStorage.getItem('userRole') || 'user';
+            }
+        }
+
+        // ===================================================================
+        // INIT
+        // ===================================================================
+        async function init() {
+            if (inviteToken) {
+                try {
+                    const { valid } = await fetchJSON(`${SCRIPT_URL}?action=validateInvite&inviteToken=${inviteToken}`);
+                    if (!valid) return alert('Invalid or used invite.');
+
+                    document.getElementById('auth-section').innerHTML = `
+                        <h2>Join CoastGuard Seniors</h2>
+                        <form id="signupForm">
+                            <label>Name: <input id="name" placeholder="Your name" required></label><br><br>
+                            <label>Role (optional): <input id="role" placeholder="e.g. River Watch"></label><br><br>
+                            <button type="submit">Join</button>
+                        </form>`;
+
+                    document.getElementById('signupForm').onsubmit = async e => {
+                        e.preventDefault();
+                        const name = document.getElementById('name').value;
+                        const role = document.getElementById('role').value;
+                        try {
+                            const { userToken: newToken } = await fetchJSON(SCRIPT_URL, {
+                                method: 'POST',
+                                body: JSON.stringify({ action: 'register', inviteToken, name, role })
+                            });
+                            localStorage.setItem('userToken', newToken);
+                            userToken = newToken;
+                            showDashboard();
+                            alert('Welcome! You are now signed up.');
+                        } catch (err) {
+                            alert('Signup failed: ' + err.message);
+                        }
+                    };
+                } catch (err) {
+                    alert('Error checking invite: ' + err.message);
+                }
+            } else if (userToken) {
+                localStorage.setItem('userToken', userToken);
+                showDashboard();
+            } else {
+                document.getElementById('auth-section').innerHTML = '<p>Use your invite link or contact admin.</p>';
+            }
+
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('./sw.js').catch(console.error);
+            }
+        }
+
+        init();
+    </script>
 </body>
 </html>
-
-
-
