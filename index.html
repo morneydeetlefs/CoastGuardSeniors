@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-    <!-- v35 -->
+    <!-- v39 -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes">
@@ -551,21 +551,53 @@
                 adminTbody.appendChild(tr);
             });
 
-            // Resolve handler – local update only
-            document.querySelectorAll('.resolveBtn').forEach(btn => {
-                btn.onclick = async () => {
-                    if (!confirm('Mark as Resolved?')) return;
-                    const row = btn.closest('tr');
-                    const index = btn.dataset.index;
-                    try {
-                        await fetchJSON(`${SCRIPT_URL}?action=markResolved&token=${userToken}&rowIndex=${index}`);
-                        row.cells[5].textContent = 'Resolved';
-                        btn.remove();
-                    } catch (err) {
-                        alert('Failed: ' + err.message);
+            
+
+            // Resolve handler – update status in table + update pin popup locally
+document.querySelectorAll('.resolveBtn').forEach(btn => {
+    btn.onclick = async () => {
+        if (!confirm('Mark this incident as Resolved?')) return;
+
+        const row = btn.closest('tr');
+        const loc = row.getAttribute('data-loc') || row.cells[4].textContent.trim();
+        const index = btn.dataset.index;
+
+        try {
+            // Update backend
+            await fetchJSON(`${SCRIPT_URL}?action=markResolved&token=${userToken}&rowIndex=${index}`);
+
+            // Update table row locally
+            row.cells[5].textContent = 'Resolved';  // Status column
+            btn.remove();                           // Remove Resolve button
+
+            // Update matching marker popup locally
+            if (loc && loc.includes(',')) {
+                const [latStr, lngStr] = loc.split(',');
+                const targetLat = parseFloat(latStr.trim());
+                const targetLng = parseFloat(lngStr.trim());
+
+                map.eachLayer(layer => {
+                    if (layer instanceof L.CircleMarker && layer.options.incidentMarker) {
+                        const ll = layer.getLatLng();
+                        if (Math.abs(ll.lat - targetLat) < 0.0001 && Math.abs(ll.lng - targetLng) < 0.0001) {
+                            // Get current popup content and replace status
+                            let popupContent = layer.getPopup().getContent();
+                            popupContent = popupContent.replace(
+                                /<b>Status:<\/b> [^<]+/,
+                                '<b>Status:</b> Resolved'
+                            );
+                            layer.setPopupContent(popupContent);
+                        }
                     }
-                };
-            });
+                });
+            }
+
+            alert('Incident marked as Resolved!');
+        } catch (err) {
+            alert('Failed to resolve: ' + err.message);
+        }
+    };
+});
 
             // Delete handler – local removal only
             document.querySelectorAll('.deleteBtn').forEach(btn => {
@@ -657,6 +689,7 @@
 </script>
 </body>
 </html>
+
 
 
 
