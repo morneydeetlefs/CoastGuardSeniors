@@ -544,70 +544,88 @@
                 };
 
                 // Load full logs + action buttons
-                const adminLogs = await fetchJSON(`${SCRIPT_URL}?action=getFullLogs&token=${userToken}`).catch(() => []);
-                const adminTbody = document.getElementById('adminLogsTable').querySelector('tbody');
-                adminTbody.innerHTML = '';
-                adminLogs.forEach((log, index) => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td>${log[0]}</td>
-                        <td>${log[1]}</td>
-                        <td>${log[2]}</td>
-                        <td>${log[3]}</td>
-                        <td>${log[4]}</td>
-                        <td>${log[5]}</td>
-                        <td>
-                            ${log[5] !== 'Resolved' ? `<button class="resolveBtn" data-index="${index}">Resolve</button>` : 'Resolved'}
-                            <button class="deleteBtn" data-index="${index}" style="background:#f44336; margin-left:8px;">Delete</button>
-                        </td>
-                    `;
-                    adminTbody.appendChild(tr);
-                });
+                // Load full logs for admin + action buttons
+const adminLogs = await fetchJSON(`${SCRIPT_URL}?action=getFullLogs&token=${userToken}`).catch(() => []);
+const adminTbody = document.getElementById('adminLogsTable').querySelector('tbody');
+adminTbody.innerHTML = '';
+adminLogs.forEach((log, index) => {
+    const loc = log[4] || ''; // location column
+    const tr = document.createElement('tr');
+    tr.setAttribute('data-loc', loc); // store location for marker matching
+    tr.innerHTML = `
+        <td>${log[0]}</td>
+        <td>${log[1]}</td>
+        <td>${log[2]}</td>
+        <td>${log[3]}</td>
+        <td>${loc}</td>
+        <td>${log[5]}</td>
+        <td>
+            ${log[5] !== 'Resolved' ? `<button class="resolveBtn" data-index="${index}">Resolve</button>` : 'Resolved'}
+            <button class="deleteBtn" data-index="${index}" style="background:#f44336; margin-left:8px;">Delete</button>
+        </td>
+    `;
+    adminTbody.appendChild(tr);
+});
 
                 // Resolve handler – local update
                 document.querySelectorAll('.resolveBtn').forEach(btn => {
-                    btn.onclick = async () => {
-                        if (!confirm('Mark as Resolved?')) return;
-                        const index = btn.dataset.index;
-                        try {
-                            await fetchJSON(`${SCRIPT_URL}?action=markResolved&token=${userToken}&rowIndex=${index}`);
-                            btn.closest('tr').cells[5].textContent = 'Resolved';
-                            btn.remove();
-                            alert('Resolved!');
-                        } catch (err) {
-                            alert('Failed: ' + err.message);
-                        }
-                    };
-                });
+    btn.onclick = async () => {
+        if (!confirm('Mark this incident as Resolved?')) return;
+
+        const row = btn.closest('tr');
+        const index = btn.dataset.index;
+
+        try {
+            await fetchJSON(`${SCRIPT_URL}?action=markResolved&token=${userToken}&rowIndex=${index}`);
+            alert('Incident marked as Resolved');
+
+            // Update status locally
+            row.cells[5].textContent = 'Resolved';
+
+            // Remove the Resolve button
+            btn.remove();
+        } catch (err) {
+            alert('Failed to resolve: ' + err.message);
+        }
+    };
+});
 
                 // Delete handler – local removal
                 document.querySelectorAll('.deleteBtn').forEach(btn => {
-                    btn.onclick = async () => {
-                        if (!confirm('Delete permanently?')) return;
-                        const index = btn.dataset.index;
-                        try {
-                            await fetchJSON(`${SCRIPT_URL}?action=deleteIncident&token=${userToken}&rowIndex=${index}`);
-                            const row = btn.closest('tr');
-                            const loc = row.cells[4].textContent.trim();
-                            if (loc.includes(',')) {
-                                const [latStr, lngStr] = loc.split(',');
-                                const lat = parseFloat(latStr.trim());
-                                const lng = parseFloat(lngStr.trim());
-                                map.eachLayer(layer => {
-                                    if (layer instanceof L.CircleMarker && layer.options.incidentMarker &&
-                                        Math.abs(layer.getLatLng().lat - lat) < 0.0001 &&
-                                        Math.abs(layer.getLatLng().lng - lng) < 0.0001) {
-                                        map.removeLayer(layer);
-                                    }
-                                });
-                            }
-                            row.remove();
-                            alert('Deleted!');
-                        } catch (err) {
-                            alert('Failed: ' + err.message);
+    btn.onclick = async () => {
+        if (!confirm('Delete this incident permanently?')) return;
+
+        const row = btn.closest('tr');
+        const loc = row.getAttribute('data-loc') || row.cells[4].textContent.trim();
+
+        try {
+            await fetchJSON(`${SCRIPT_URL}?action=deleteIncident&token=${userToken}&rowIndex=${btn.dataset.index}`);
+            alert('Incident deleted');
+
+            // Remove row from table
+            row.remove();
+
+            // Remove matching marker from map (using stored data-loc)
+            if (loc && loc.includes(',')) {
+                const [latStr, lngStr] = loc.split(',');
+                const targetLat = parseFloat(latStr.trim());
+                const targetLng = parseFloat(lngStr.trim());
+
+                map.eachLayer(layer => {
+                    if (layer instanceof L.CircleMarker && layer.options.incidentMarker) {
+                        const ll = layer.getLatLng();
+                        // Use small tolerance for floating-point match
+                        if (Math.abs(ll.lat - targetLat) < 0.0001 && Math.abs(ll.lng - targetLng) < 0.0001) {
+                            map.removeLayer(layer);
                         }
-                    };
+                    }
                 });
+            }
+        } catch (err) {
+            alert('Failed to delete: ' + err.message);
+        }
+    };
+});
             } else {
                 console.error('Admin console element not found');
             }
@@ -684,6 +702,7 @@
 </script>
 </body>
 </html>
+
 
 
 
